@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import type { GamePhase, PlayerID, PendingChoiceType } from '@/lib/types';
+import type { GamePhase, PlayerID, PendingChoiceType } from "@/lib/types";
 
 interface Props {
   phase: GamePhase;
@@ -15,11 +15,17 @@ interface Props {
 }
 
 export default function PhaseIndicator({
-  phase, currentTurn, aiThinking, arrowActive, forcedFlip, selectedMagicName, pendingChoice,
+  phase,
+  currentTurn,
+  aiThinking,
+  arrowActive,
+  forcedFlip,
+  selectedMagicName,
+  pendingChoice,
 }: Props) {
-  if (phase === 'game_over') return null;
+  if (phase === "game_over") return null;
 
-  if (currentTurn === 'ai' || aiThinking) {
+  if (currentTurn === "ai" || aiThinking) {
     return (
       <span className="text-xs text-slate-400 animate-pulse">
         🤖 L&apos;IA joue…
@@ -27,11 +33,33 @@ export default function PhaseIndicator({
     );
   }
 
-  if (pendingChoice === 'fairy_peek') {
-    return <span className="text-xs text-cyan-300 font-semibold animate-pulse">🧚 Clique une carte pour la regarder en secret</span>;
+  if (pendingChoice === "fairy_peek") {
+    return (
+      <span className="text-xs text-cyan-300 font-semibold animate-pulse">
+        🧚 Clique une carte pour la regarder en secret
+      </span>
+    );
   }
-  if (pendingChoice === 'manipulation') {
-    return <span className="text-xs text-violet-300 font-semibold animate-pulse">🎭 Désigne la prochaine carte de l&apos;adversaire</span>;
+  if (pendingChoice === "manipulation") {
+    return (
+      <span className="text-xs text-violet-300 font-semibold animate-pulse">
+        🎭 Désigne la prochaine carte de l&apos;adversaire
+      </span>
+    );
+  }
+  if (pendingChoice === "choice_of_soul") {
+    return (
+      <span className="text-xs text-amber-300 font-semibold animate-pulse">
+        ✨ Choisis: carte de magie ou carte de vie
+      </span>
+    );
+  }
+  if (pendingChoice === "goblin" || pendingChoice === "discard_any_card") {
+    return (
+      <span className="text-xs text-red-300 font-semibold animate-pulse">
+        ⚔️ Choix de défausse requis
+      </span>
+    );
   }
 
   if (selectedMagicName) {
@@ -51,13 +79,14 @@ export default function PhaseIndicator({
   }
 
   const labels: Partial<Record<GamePhase, string>> = {
-    play_magic_before: '🃏 Joue une carte magie ou clique «&nbsp;Retourner&nbsp;»',
-    flip_card:         '🎴 Clique une carte pour la retourner',
-    apply_effect:      '⚡ Application de l\'effet…',
-    play_magic_after:  '🃏 Joue une carte magie ou clique «&nbsp;Passer&nbsp;»',
+    play_magic_before:
+      "🃏 Joue une carte magie ou clique «&nbsp;Retourner&nbsp;»",
+    flip_card: "🎴 Clique une carte pour la retourner",
+    apply_effect: "⚡ Application de l'effet…",
+    play_magic_after: "🃏 Joue une carte magie ou clique «&nbsp;Passer&nbsp;»",
   };
 
-  const label = labels[phase] ?? '';
+  const label = labels[phase] ?? "";
   return (
     <span
       className="text-xs text-slate-300"

@@ -1,7 +1,8 @@
-'use client';
+"use client";
 
-import type { GameState, Position } from '@/lib/types';
-import CardTile from './CardTile';
+import type { GameState, Position } from "@/lib/types";
+import CardTile from "./CardTile";
+import { getAllowedFlipTargets } from "@/lib/gameLogic";
 
 interface Props {
   state: GameState;
@@ -9,11 +10,10 @@ interface Props {
 }
 
 export default function GameBoard({ state, onCardClick }: Props) {
-  const { grid, phase, currentTurn, arrowConstraint, pendingChoice } = state;
+  const { grid, currentTurn, pendingChoice } = state;
 
-  const isHumanTurn = currentTurn === 'human';
-  const arrowTargets: Position[] = arrowConstraint?.targets ?? [];
-  const forcedTargets: Position[] = state.forcedFlipTargets ?? [];
+  const isHumanTurn = currentTurn === "human";
+  const legalTargets = getAllowedFlipTargets(state);
 
   function isSelectable(pos: Position): boolean {
     const card = grid[pos.row][pos.col];
@@ -21,44 +21,53 @@ export default function GameBoard({ state, onCardClick }: Props) {
     if (!isHumanTurn) return false;
 
     // Pending choice modes
-    if (pendingChoice?.type === 'fairy_peek') return true;
-    if (pendingChoice?.type === 'manipulation') return true;
+    if (pendingChoice?.type === "fairy_peek") return true;
+    if (pendingChoice?.type === "manipulation") return true;
 
-    if (phase === 'flip_card') return true;
-    return false;
+    return legalTargets.some(
+      (target) => target.row === pos.row && target.col === pos.col,
+    );
   }
 
   function isArrowTarget(pos: Position): boolean {
     if (!isHumanTurn) return false;
-    if (phase !== 'arrow_follow') return false;
-    return arrowTargets.some(t => t.row === pos.row && t.col === pos.col)
-      || forcedTargets.some(t => t.row === pos.row && t.col === pos.col);
+    if (
+      pendingChoice?.type === "fairy_peek" ||
+      pendingChoice?.type === "manipulation"
+    )
+      return false;
+    return legalTargets.some(
+      (target) => target.row === pos.row && target.col === pos.col,
+    );
   }
 
   function isPeekTarget(pos: Position): boolean {
     if (!isHumanTurn) return false;
-    return pendingChoice?.type === 'fairy_peek' && !grid[pos.row][pos.col].flipped;
+    return (
+      pendingChoice?.type === "fairy_peek" && !grid[pos.row][pos.col].flipped
+    );
   }
 
   function isManipulationTarget(pos: Position): boolean {
     if (!isHumanTurn) return false;
-    return pendingChoice?.type === 'manipulation' && !grid[pos.row][pos.col].flipped;
+    return (
+      pendingChoice?.type === "manipulation" && !grid[pos.row][pos.col].flipped
+    );
   }
 
   return (
     <div
-      className="grid gap-2 w-full"
+      className="grid gap-2 w-full h-full"
       style={{ gridTemplateColumns: `repeat(6, 1fr)` }}
     >
-      {grid.map(row =>
-        row.map(card => (
+      {grid.map((row) =>
+        row.map((card) => (
           <CardTile
             key={card.id}
             card={card}
             viewerID="human"
             isSelectable={isSelectable(card.position)}
             isArrowTarget={isArrowTarget(card.position)}
-            isSwapTarget={false}
             isPeekTarget={isPeekTarget(card.position)}
             isManipulationTarget={isManipulationTarget(card.position)}
             onClick={onCardClick}

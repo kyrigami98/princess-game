@@ -1,45 +1,46 @@
+import { getAllowedFlipTargets } from './gameLogic';
 import type { GameState, MagicCard, Position } from './types';
-import { getAdjacentPositions } from './cards';
 
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+function randomItem<T>(list: T[]): T {
+  return list[Math.floor(Math.random() * list.length)];
 }
 
-function unflippedPositions(state: GameState): Position[] {
-  return state.grid.flat().filter(c => !c.flipped).map(c => c.position);
-}
+function scoreCardForAi(state: GameState, pos: Position): number {
+  const card = state.grid[pos.row][pos.col];
 
-// Cards that are good (or neutral) for the AI to flip
-function safeKnownPositions(state: GameState): Position[] {
-  const safeEffects = new Set([
-    'villager', 'healer', 'mage', 'regeneration', 'friend', 'fairy',
-    'lightning', 'fireball',          // good: hurt opponent
-    'princess', 'queen',              // force opponent to flip
+  const good = new Set([
+    'healer',
+    'regeneration',
+    'worker',
+    'scientist',
+    'queen',
+    'princess_proud',
+    'princess_strict',
+    'princess_oppressive',
+    'princess_disappointed',
+    'princess_curious',
+    'princess_angry',
+    'princess_attentive',
+    'princess_ambitious',
+    'yeti',
+    'treant',
+    'demon_josu',
+    'knight_runu',
+    'giant',
+    'proud_knight',
   ]);
-  return state.grid.flat()
-    .filter(c => !c.flipped && c.peekedBy === 'ai' && safeEffects.has(c.effect))
-    .map(c => c.position);
-}
 
-// Cards that are bad for the AI to flip
-function dangerousKnownPositions(state: GameState): Position[] {
-  const dangerousEffects = new Set(['burn', 'electrocution', 'vampire', 'goblin', 'gravedigger']);
-  return state.grid.flat()
-    .filter(c => !c.flipped && c.peekedBy === 'ai' && dangerousEffects.has(c.effect))
-    .map(c => c.position);
-}
+  const bad = new Set(['death', 'burn', 'ifrit', 'electrocution', 'siren', 'succubus']);
 
-function positionEquals(a: Position, b: Position): boolean {
-  return a.row === b.row && a.col === b.col;
-}
+  if (card.peekedBy === 'ai') {
+    if (good.has(card.effect)) return 10;
+    if (bad.has(card.effect)) return -10;
+  }
 
-function positionIn(pos: Position, list: Position[]): boolean {
-  return list.some(p => positionEquals(p, pos));
+  if (card.effect === 'death') return -100;
+  if (card.effect === 'lightning' || card.effect === 'fireball' || card.effect === 'atlante') return 4;
+  return 0;
 }
-
-// ─── Magic Decision ───────────────────────────────────────────────────────────
 
 export interface AIDecision {
   playMagic: boolean;
@@ -48,35 +49,28 @@ export interface AIDecision {
 
 export function aiDecideMagicBefore(state: GameState): AIDecision {
   const ai = state.players.ai;
-  const hand = ai.hand.filter(c => c.timing === 'before' || c.timing === 'both');
+  const hand = ai.hand.filter((card) => card.timing === 'before' || card.timing === 'counter');
 
-  // Low health: try to gain life or protect
-  if (ai.lives <= 2) {
-    const coupDecisif = hand.find(c => c.effect === 'coup_decisif');
-    if (coupDecisif && Math.random() < 0.7) return { playMagic: true, magicCard: coupDecisif };
-
-    const barriere = hand.find(c => c.effect === 'barriere');
-    if (barriere && !ai.shielded) return { playMagic: true, magicCard: barriere };
+  if (!ai.counterMagicActive) {
+    const counter = hand.find((card) => card.effect === 'counter_magic');
+    if (counter && state.players.human.hand.length >= 2 && Math.random() < 0.45) {
+      return { playMagic: true, magicCard: counter };
+    }
   }
 
-  // Use contre_magie proactively if opponent has multiple cards
-  const contreMagie = hand.find(c => c.effect === 'contre_magie');
-  if (contreMagie && !ai.counterMagicActive && state.players.human.hand.length >= 2 && Math.random() < 0.35) {
-    return { playMagic: true, magicCard: contreMagie };
+  if (!ai.immuneCharacterEffect) {
+    const immunity = hand.find((card) => card.effect === 'immunity');
+    if (immunity && Math.random() < 0.22) return { playMagic: true, magicCard: immunity };
   }
 
-  // Annulation before flipping (immune to next card effect)
-  const annulation = hand.find(c => c.effect === 'annulation');
-  if (annulation && !ai.nullifyNext && Math.random() < 0.25) {
-    return { playMagic: true, magicCard: annulation };
+  if (!ai.immuneNextSingleLifeLoss && ai.lives <= 2) {
+    const barrier = hand.find((card) => card.effect === 'barrier');
+    if (barrier) return { playMagic: true, magicCard: barrier };
   }
 
-  // Skip own turn (concentration) only if all remaining cards seem dangerous
-  const dangerous = dangerousKnownPositions(state);
-  const unflipped = unflippedPositions(state);
-  const concentration = hand.find(c => c.effect === 'concentration');
-  if (concentration && dangerous.length > 0 && dangerous.length >= unflipped.length * 0.6 && Math.random() < 0.4) {
-    return { playMagic: true, magicCard: concentration };
+  const choiceOfSoul = hand.find((card) => card.effect === 'choice_of_soul');
+  if (choiceOfSoul && (ai.lives <= 2 || ai.hand.length <= 1) && Math.random() < 0.7) {
+    return { playMagic: true, magicCard: choiceOfSoul };
   }
 
   return { playMagic: false };
@@ -84,95 +78,53 @@ export function aiDecideMagicBefore(state: GameState): AIDecision {
 
 export function aiDecideMagicAfter(state: GameState): AIDecision {
   const ai = state.players.ai;
-  const hand = ai.hand.filter(c => c.timing === 'after' || c.timing === 'both');
+  const hand = ai.hand.filter((card) => card.timing === 'after' || card.timing === 'counter');
 
-  // Restriction: make opponent skip next turn (aggressive play)
-  const restriction = hand.find(c => c.effect === 'restriction');
-  if (restriction && Math.random() < 0.55) return { playMagic: true, magicCard: restriction };
+  const restriction = hand.find((card) => card.effect === 'restriction');
+  if (restriction && Math.random() < 0.5) return { playMagic: true, magicCard: restriction };
 
-  // Coup décisif: gain life if needed
-  const coupDecisif = hand.find(c => c.effect === 'coup_decisif');
-  if (coupDecisif && ai.lives <= 2 && Math.random() < 0.8) {
-    return { playMagic: true, magicCard: coupDecisif };
-  }
-
-  // Manipulation: designate a card for opponent to flip next turn
-  const manipulation = hand.find(c => c.effect === 'manipulation');
-  if (manipulation && unflippedPositions(state).length > 0 && Math.random() < 0.5) {
+  const manipulation = hand.find((card) => card.effect === 'manipulation');
+  if (manipulation && getAllowedFlipTargets({ ...state, currentTurn: 'human' }).length > 0 && Math.random() < 0.6) {
     return { playMagic: true, magicCard: manipulation };
   }
 
-  // Barriere if low on health and not already shielded
-  const barriere = hand.find(c => c.effect === 'barriere');
-  if (barriere && !ai.shielded && ai.lives <= 2 && Math.random() < 0.7) {
-    return { playMagic: true, magicCard: barriere };
+  const concentration = hand.find((card) => card.effect === 'concentration');
+  if (concentration && ai.lives <= 1 && Math.random() < 0.5) return { playMagic: true, magicCard: concentration };
+
+  const barrier = hand.find((card) => card.effect === 'barrier');
+  if (barrier && ai.lives <= 2 && !ai.immuneNextSingleLifeLoss && Math.random() < 0.4) {
+    return { playMagic: true, magicCard: barrier };
   }
 
   return { playMagic: false };
 }
 
-// ─── Flip Decision ────────────────────────────────────────────────────────────
-
 export function aiDecideFlip(state: GameState): Position {
-  const unflipped = unflippedPositions(state);
-  const safe = safeKnownPositions(state);
-  const dangerous = dangerousKnownPositions(state);
-
-  // Arrow constraint (princess)
-  if (state.arrowConstraint) {
-    const targets = state.arrowConstraint.targets.filter(p => !state.grid[p.row][p.col].flipped);
-    if (targets.length > 0) {
-      const safeForcedTarget = targets.find(p => positionIn(p, safe));
-      if (safeForcedTarget) return safeForcedTarget;
-      const nonDangerous = targets.filter(p => !positionIn(p, dangerous));
-      return randomItem(nonDangerous.length > 0 ? nonDangerous : targets);
-    }
+  const allowed = getAllowedFlipTargets(state);
+  if (allowed.length === 0) {
+    const fallback = state.grid.flat().find((card) => !card.flipped);
+    if (!fallback) return { row: 0, col: 0 };
+    return fallback.position;
   }
 
-  // Queen forced queue
-  if (state.queenForcedQueue && state.queenForcedQueue.length > 0) {
-    const targets = state.queenForcedQueue.filter(p => !state.grid[p.row][p.col].flipped);
-    if (targets.length > 0) {
-      const safeForcedTarget = targets.find(p => positionIn(p, safe));
-      if (safeForcedTarget) return safeForcedTarget;
-      const nonDangerous = targets.filter(p => !positionIn(p, dangerous));
-      return randomItem(nonDangerous.length > 0 ? nonDangerous : targets);
-    }
-  }
+  const scored = allowed
+    .map((pos) => ({ pos, score: scoreCardForAi(state, pos) + Math.random() * 0.2 }))
+    .sort((a, b) => b.score - a.score);
 
-  // Forced flip from manipulation magic
-  if (state.forcedFlipTargets && state.forcedFlipTargets.length > 0) {
-    return state.forcedFlipTargets[0];
-  }
-
-  // Prefer known safe positions
-  if (safe.length > 0) return randomItem(safe);
-
-  // Filter out known dangerous positions
-  const safeUnknown = unflipped.filter(p => !positionIn(p, dangerous));
-  if (safeUnknown.length > 0) {
-    const scored = safeUnknown.map(pos => {
-      const adj = getAdjacentPositions(pos, state.grid);
-      const dangerNeighbors = adj.filter(p => positionIn(p, dangerous)).length;
-      return { pos, score: dangerNeighbors };
-    });
-    scored.sort((a, b) => a.score - b.score);
-    return randomItem(scored.slice(0, Math.min(3, scored.length))).pos;
-  }
-
-  return randomItem(unflipped);
+  return scored[0].pos;
 }
 
-// ─── AI auto-resolve manipulation target ─────────────────────────────────────
-
 export function aiPickManipulationTarget(state: GameState): Position {
-  const unflipped = unflippedPositions(state);
-  // Prefer cards that are dangerous for the human (good for AI)
-  const dangerousForHuman = new Set(['burn', 'electrocution', 'vampire', 'goblin', 'gravedigger', 'lightning']);
-  const knownDangerous = unflipped.filter(p => {
-    const card = state.grid[p.row][p.col];
-    return card.peekedBy === 'ai' && dangerousForHuman.has(card.effect);
-  });
-  if (knownDangerous.length > 0) return randomItem(knownDangerous);
-  return randomItem(unflipped);
+  const candidateState = { ...state, currentTurn: 'human' as const };
+  const targets = getAllowedFlipTargets(candidateState);
+  if (targets.length === 0) {
+    const fallback = state.grid.flat().find((card) => !card.flipped);
+    return fallback ? fallback.position : { row: 0, col: 0 };
+  }
+
+  const scored = targets
+    .map((pos) => ({ pos, score: -scoreCardForAi(state, pos) + Math.random() * 0.25 }))
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.pos ?? randomItem(targets);
 }

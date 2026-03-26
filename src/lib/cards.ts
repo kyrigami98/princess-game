@@ -1,286 +1,221 @@
-import type { GridCard, GridCardEffect, ArrowDirection, MagicCard, Position } from './types';
+import type {
+  ArrowDirection,
+  GridCard,
+  GridCardDefinition,
+  MagicCard,
+  MagicCardEffect,
+  Position,
+} from './types';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function uid(): string { return Math.random().toString(36).slice(2, 9); }
+function uid(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 export function shuffle<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
+  const next = [...arr];
+  for (let i = next.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [next[i], next[j]] = [next[j], next[i]];
   }
-  return arr;
+  return next;
 }
 
-// ─── Grid Cards (personnages + sortilèges) — 4×6 = 24 cartes ─────────────────
-
-interface GridTemplate {
-  effect: GridCardEffect;
-  label: string;
-  description: string;
-  arrows: ArrowDirection[];
-}
-
-const GRID_TEMPLATES: GridTemplate[] = [
-  // ── Les 8 Princesses (1 flèche chacune) ────────────────────────────────────
+const ALL_CHARACTERS: GridCardDefinition[] = [
+  { effect: 'yeti', label: 'Le Yéti IHO', kind: 'character', polarity: 'positive', arrows: [], description: 'Votre adversaire passe son prochain tour.' },
+  { effect: 'villager', label: 'Le Villageois SAMUIL', kind: 'character', polarity: 'positive', arrows: [], description: 'Il ne se passe rien.' },
+  { effect: 'troll', label: 'Le Troll NUFO', kind: 'character', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 1 carte de VIE et 1 carte de MAGIE.' },
+  { effect: 'triton', label: 'Le Triton OHIORAHU', kind: 'character', polarity: 'negative', arrows: [], description: 'Votre adversaire ne sera pas affecté par l’effet de votre prochaine carte de MAGIE.' },
+  { effect: 'treant', label: 'Le Treant LUGAJO', kind: 'character', polarity: 'positive', arrows: [], description: 'Vous ne serez pas affecté par le prochain effet d’1 carte de MAGIE adverse.' },
+  { effect: 'succubus', label: 'Le Succube TNUHO', kind: 'character', polarity: 'positive', arrows: [], description: 'Passez votre prochain tour.' },
+  { effect: 'siren', label: 'La Sirène OUA', kind: 'character', polarity: 'negative', arrows: [], description: 'Donnez 1 de vos cartes de VIE à votre adversaire.' },
+  { effect: 'scientist', label: 'Le Scientifique NITGLILT', kind: 'character', polarity: 'positive', arrows: [], description: 'Les joueurs piochent 1 carte.' },
   {
-    effect: 'princess', label: 'La Princesse Orgueilleuse',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['bottom'],
+    effect: 'king',
+    label: 'Le Roi PIL JADR',
+    kind: 'character',
+    polarity: 'negative',
+    arrows: ['top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left', 'left'],
+    description: 'Les cartes pointées ne peuvent être retournées qu’après toutes les autres.',
   },
   {
-    effect: 'princess', label: 'La Princesse Colérique',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['left'],
+    effect: 'queen',
+    label: 'La Reine PIL JADR',
+    kind: 'character',
+    polarity: 'negative',
+    arrows: ['top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left', 'left'],
+    description: 'Les joueurs doivent d’abord retourner les cartes pointées.',
   },
-  {
-    effect: 'princess', label: 'La Princesse Stricte',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['bottom-left'],
-  },
-  {
-    effect: 'princess', label: 'La Princesse Oppressante',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['bottom-right'],
-  },
-  {
-    effect: 'princess', label: 'La Princesse Curieuse',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['top-left'],
-  },
-  {
-    effect: 'princess', label: 'La Princesse Attentive',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['top-right'],
-  },
-  {
-    effect: 'princess', label: 'La Princesse Ambitieuse',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['top'],
-  },
-  {
-    effect: 'princess', label: 'La Princesse Déçue',
-    description: "L'adversaire doit retourner la carte pointée.",
-    arrows: ['right'],
-  },
-  // ── La Reine ────────────────────────────────────────────────────────────────
-  {
-    effect: 'queen', label: 'La Reine',
-    description: "L'adversaire doit retourner toutes les cartes adjacentes, une par tour.",
-    arrows: ['top-left','top','top-right','right','bottom-right','bottom','bottom-left','left'],
-  },
-  // ── Autres personnages ───────────────────────────────────────────────────────
-  {
-    effect: 'goblin', label: 'Le Gobelin',
-    description: "Chaque joueur choisit : défausser 1 magie OU perdre 1 vie.",
-    arrows: [],
-  },
-  {
-    effect: 'friend', label: "L'Ami de Tous",
-    description: "Les joueurs s'échangent 1 carte de magie. Celui sans magie pioche d'abord.",
-    arrows: [],
-  },
-  {
-    effect: 'fairy', label: 'La Fée',
-    description: "Regardez en secret 1 carte posée sur la grille sans la retourner.",
-    arrows: [],
-  },
-  {
-    effect: 'healer', label: 'Le Guérisseur',
-    description: 'Gagnez 1 vie.',
-    arrows: [],
-  },
-  {
-    effect: 'vampire', label: 'Le Vampire',
-    description: "Perdez 1 vie. Votre adversaire gagne 1 vie.",
-    arrows: [],
-  },
-  {
-    effect: 'gravedigger', label: 'Le Fossoyeur',
-    description: "Donnez 1 carte de magie à votre adversaire.",
-    arrows: [],
-  },
-  {
-    effect: 'villager', label: 'Le Villageois',
-    description: 'Il ne se passe rien.',
-    arrows: [],
-  },
-  {
-    effect: 'villager', label: 'Le Villageois',
-    description: 'Il ne se passe rien.',
-    arrows: [],
-  },
-  {
-    effect: 'mage', label: 'Le Mage',
-    description: 'Piochez 1 carte de magie.',
-    arrows: [],
-  },
-  {
-    effect: 'merchant', label: 'Le Marchand de Sorts',
-    description: 'Défaussez 1 carte de magie, puis piochez 1 carte de magie.',
-    arrows: [],
-  },
-  // ── Sortilèges ───────────────────────────────────────────────────────────────
-  {
-    effect: 'lightning', label: 'Foudroiement',
-    description: "Votre adversaire perd 2 vies.",
-    arrows: [],
-  },
-  {
-    effect: 'regeneration', label: 'Régénération',
-    description: "Gagnez 1 vie.",
-    arrows: [],
-  },
-  {
-    effect: 'burn', label: 'Brûlure',
-    description: "Perdez 1 vie.",
-    arrows: [],
-  },
-  {
-    effect: 'fireball', label: 'Boule de Feu',
-    description: "Votre adversaire perd 1 vie.",
-    arrows: [],
-  },
-  {
-    effect: 'electrocution', label: 'Électrocution',
-    description: "Perdez 1 vie et 1 carte de magie.",
-    arrows: [],
-  },
+  { effect: 'princess_strict', label: 'La Princesse Stricte', kind: 'character', polarity: 'negative', arrows: ['bottom-left'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_proud', label: 'La Princesse Orgueilleuse', kind: 'character', polarity: 'negative', arrows: ['bottom'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_oppressive', label: 'La Princesse Oppressante', kind: 'character', polarity: 'negative', arrows: ['bottom-right'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_disappointed', label: 'La Princesse Déçue', kind: 'character', polarity: 'negative', arrows: ['right'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_curious', label: 'La Princesse Curieuse', kind: 'character', polarity: 'negative', arrows: ['top-left'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_angry', label: 'La Princesse Colérique', kind: 'character', polarity: 'negative', arrows: ['left'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_attentive', label: 'La Princesse Attentive', kind: 'character', polarity: 'negative', arrows: ['top-right'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'princess_ambitious', label: 'La Princesse Ambitieuse', kind: 'character', polarity: 'negative', arrows: ['top'], description: 'Votre adversaire ne peut retourner que la carte pointée.' },
+  { effect: 'worker', label: 'L’Ouvrier JADRLALD', kind: 'character', polarity: 'positive', arrows: [], description: 'Piochez 1 carte.' },
+  { effect: 'ogre', label: 'L’Ogre PFOZET', kind: 'character', polarity: 'negative', arrows: [], description: 'Les joueurs défaussent 1 carte de VIE.' },
+  { effect: 'minotaur', label: 'Le Minotaure RUNUPRNU', kind: 'character', polarity: 'positive', arrows: [], description: 'Votre adversaire ne sera pas affecté par le prochain effet qui doit lui faire défausser 1 carte de VIE.' },
+  { effect: 'merchant_lugajo', label: 'Le Marchand LUGAJO', kind: 'character', polarity: 'negative', arrows: [], description: 'Les joueurs piochent 1 carte de MAGIE puis défaussent 1 carte de VIE.' },
+  { effect: 'merchant_lorino', label: 'Le Marchand LORINO', kind: 'character', polarity: 'negative', arrows: [], description: 'Défaussez 1 carte de MAGIE puis piochez-en 1 autre.' },
+  { effect: 'mage', label: 'Le Mage KOGU', kind: 'character', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 1 carte de MAGIE puis en pioche 1 autre.' },
+  { effect: 'librarian', label: 'Le Libraire VOA', kind: 'character', polarity: 'positive', arrows: [], description: 'Ajoutez 1 carte de MAGIE du deck à votre main puis mélangez le deck.' },
+  { effect: 'engineer', label: 'L’Ingénieur NITGLILT', kind: 'character', polarity: 'negative', arrows: [], description: 'Les joueurs défaussent 1 carte de MAGIE.' },
+  { effect: 'ifrit', label: 'L’Ifrit VOA', kind: 'character', polarity: 'negative', arrows: [], description: 'Défaussez 1 carte de VIE et 1 carte de MAGIE.' },
+  { effect: 'harpy', label: 'La Harpie OUNAULU', kind: 'character', polarity: 'positive', arrows: [], description: 'Votre adversaire ne sera pas affecté par le prochain effet d’1 carte de sortilège.' },
+  { effect: 'warrior', label: 'Le Guerrier RUNU', kind: 'character', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 1 carte.' },
+  { effect: 'healer', label: 'Le Guérisseur KEEL JADR', kind: 'character', polarity: 'positive', arrows: [], description: 'Piochez 1 carte de VIE.' },
+  { effect: 'goblin', label: 'Le Gobelin FOLG', kind: 'character', polarity: 'negative', arrows: [], description: 'Les joueurs défaussent 1 carte.' },
+  { effect: 'giant', label: 'Le Géant GOJO', kind: 'character', polarity: 'positive', arrows: [], description: 'Vous ne serez pas affecté par le prochain effet qui doit vous faire défausser 1+ carte de VIE.' },
+  { effect: 'proud_knight', label: 'Le Fier Chevalier TORUN', kind: 'character', polarity: 'positive', arrows: [], description: 'Le prochain effet qui doit vous faire défausser 1+ carte de VIE ne s’applique pas.' },
+  { effect: 'fairy', label: 'La Fée TALZ', kind: 'character', polarity: 'positive', arrows: [], description: 'Regardez, sans la dévoiler, 1 carte du plateau.' },
+  { effect: 'gravedigger', label: 'Le Fossoyeur VIJO', kind: 'character', polarity: 'negative', arrows: [], description: 'Donnez 1 carte de MAGIE à votre adversaire, ou piochez-en 1 d’abord si vous n’en avez pas.' },
+  { effect: 'druid', label: 'Le Druide LORINO', kind: 'character', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 1 carte de MAGIE et 1 autre carte.' },
+  { effect: 'demon_pfozet', label: 'Le Démon PFOZET', kind: 'character', polarity: 'negative', arrows: ['top-left', 'top-right', 'bottom-left', 'bottom-right'], description: 'Révélez les cartes pointées. Seuls les effets négatifs s’appliquent.' },
+  { effect: 'demon_josu', label: 'Le Démon JOSU', kind: 'character', polarity: 'positive', arrows: [], description: 'Vous ne serez pas affecté par le prochain effet d’1 carte de sortilège.' },
+  { effect: 'knight_runu', label: 'Le Chevalier RUNU', kind: 'character', polarity: 'positive', arrows: [], description: 'Vous ne serez pas affecté par le prochain effet négatif d’1 carte de PERSONNAGE.' },
+  { effect: 'knight_gojo', label: 'Le Chevalier GOJO', kind: 'character', polarity: 'negative', arrows: [], description: 'Vous ne serez pas affecté par le prochain effet positif d’1 carte de PERSONNAGE.' },
+  { effect: 'bibliothecary', label: 'Le Bibliothécaire VIJO', kind: 'character', polarity: 'positive', arrows: [], description: 'Piochez 1 carte de MAGIE.' },
+  { effect: 'atlante', label: 'L’Atlante TORUN', kind: 'character', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 1 carte de VIE.' },
+  { effect: 'assassin', label: 'L’Assassin WJOH JADR', kind: 'character', polarity: 'negative', arrows: [], description: 'Lancez une pièce. Le joueur désigné défausse 1 carte de VIE.' },
+  { effect: 'angel', label: 'L’Ange OUNAULU', kind: 'character', polarity: 'positive', arrows: ['top', 'right', 'bottom', 'left'], description: 'Révélez les cartes pointées. Seuls les effets positifs s’appliquent.' },
+  { effect: 'friend', label: 'L’Ami JADRLALD', kind: 'character', polarity: 'negative', arrows: [], description: 'Les joueurs échangent 1 carte de MAGIE. Si un joueur n’en a pas, il pioche d’abord.' },
 ];
 
-export function buildGrid(): GridCard[][] {
-  const templates = shuffle([...GRID_TEMPLATES]);
-  const ROWS = 4, COLS = 6;
+const SPELLS: GridCardDefinition[] = [
+  { effect: 'regeneration', label: 'Régénération', kind: 'spell', polarity: 'positive', arrows: [], description: 'Piochez 1 carte de VIE.' },
+  { effect: 'burn', label: 'Brûlure', kind: 'spell', polarity: 'negative', arrows: [], description: 'Défaussez 1 carte de VIE.' },
+  { effect: 'fireball', label: 'Boule de feu', kind: 'spell', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 1 carte de VIE.' },
+  { effect: 'electrocution', label: 'Électrocution', kind: 'spell', polarity: 'negative', arrows: [], description: 'Défaussez 1 carte de MAGIE et 1 carte de VIE.' },
+  { effect: 'lightning', label: 'Foudroiement', kind: 'spell', polarity: 'negative', arrows: [], description: 'Votre adversaire défausse 2 cartes de VIE.' },
+];
+
+const DEATH_CARD: GridCardDefinition = {
+  effect: 'death',
+  label: 'LA MORT',
+  description: 'Si vous retournez cette carte, vous perdez immédiatement la partie.',
+  kind: 'death',
+  polarity: null,
+  arrows: [],
+};
+
+const MAGIC_DEFINITIONS: Array<Omit<MagicCard, 'id'> & { count: number }> = [
+  { name: 'Barrière', effect: 'barrier', timing: 'counter', description: 'Défaussez cette carte à la place de défausser 1 carte de VIE.', emoji: '🛡️', count: 2 },
+  { name: 'Choix d’âme', effect: 'choice_of_soul', timing: 'before', description: 'Piochez 1 carte de MAGIE ou 1 carte de VIE.', emoji: '✨', count: 2 },
+  { name: 'Concentration', effect: 'concentration', timing: 'after', description: 'Passez votre prochain tour.', emoji: '🧘', count: 1 },
+  { name: 'Contre-magie', effect: 'counter_magic', timing: 'counter', description: 'Annulez 1 carte de MAGIE adverse activée.', emoji: '🌀', count: 2 },
+  { name: 'Immunité', effect: 'immunity', timing: 'counter', description: 'Annulez 1 effet de PERSONNAGE qui doit s’appliquer.', emoji: '✴️', count: 1 },
+  { name: 'Manipulation', effect: 'manipulation', timing: 'after', description: 'Choisissez la prochaine carte que votre adversaire retournera.', emoji: '🎭', count: 1 },
+  { name: 'Restriction', effect: 'restriction', timing: 'after', description: 'Faites passer le prochain tour de votre adversaire.', emoji: '⛓️', count: 1 },
+];
+
+export function getAllCharacterDefinitions(): GridCardDefinition[] {
+  return [...ALL_CHARACTERS];
+}
+
+export function getModeGridDefinitions(): GridCardDefinition[] {
+  const pickedCharacters = shuffle(ALL_CHARACTERS).slice(0, 18);
+  return shuffle([...pickedCharacters, ...SPELLS, DEATH_CARD]);
+}
+
+export function buildGrid(rows = 4, cols = 6): GridCard[][] {
+  const defs = getModeGridDefinitions();
   const grid: GridCard[][] = [];
-  let idx = 0;
-  for (let r = 0; r < ROWS; r++) {
-    grid[r] = [];
-    for (let c = 0; c < COLS; c++) {
-      const tpl = templates[idx++];
-      grid[r][c] = {
+  let cursor = 0;
+
+  for (let row = 0; row < rows; row++) {
+    grid[row] = [];
+    for (let col = 0; col < cols; col++) {
+      const def = defs[cursor++];
+      grid[row][col] = {
+        ...def,
         id: uid(),
-        effect: tpl.effect,
-        arrows: tpl.arrows,
         flipped: false,
         peeked: false,
         peekedBy: null,
-        position: { row: r, col: c },
-        label: tpl.label,
-        description: tpl.description,
+        position: { row, col },
       };
     }
   }
+
   return grid;
 }
 
-// ─── Magic Cards (deck) ───────────────────────────────────────────────────────
-
-interface MagicTemplate {
-  effect: MagicCard['effect'];
-  name: string;
-  timing: MagicCard['timing'];
-  description: string;
-  emoji: string;
-  count: number;
-}
-
-const MAGIC_TEMPLATES: MagicTemplate[] = [
-  {
-    effect: 'restriction',
-    name: 'Restriction',
-    timing: 'after',
-    description: "Après avoir retourné une carte, faites passer le prochain tour de votre adversaire.",
-    emoji: '⛓️',
-    count: 3,
-  },
-  {
-    effect: 'concentration',
-    name: 'Concentration',
-    timing: 'before',
-    description: "Avant de retourner une carte, sautez votre tour actuel sans retourner de carte.",
-    emoji: '🧘',
-    count: 2,
-  },
-  {
-    effect: 'coup_decisif',
-    name: 'Coup Décisif',
-    timing: 'both',
-    description: "Choisissez : piocher 1 carte de magie OU gagner 1 vie.",
-    emoji: '⚔️',
-    count: 3,
-  },
-  {
-    effect: 'manipulation',
-    name: 'Manipulation',
-    timing: 'after',
-    description: "Après avoir retourné une carte, désignez la prochaine carte que votre adversaire devra retourner.",
-    emoji: '🎭',
-    count: 3,
-  },
-  {
-    effect: 'contre_magie',
-    name: 'Contre Magie',
-    timing: 'both',
-    description: "Annule la prochaine carte de magie jouée par votre adversaire.",
-    emoji: '🌀',
-    count: 3,
-  },
-  {
-    effect: 'annulation',
-    name: 'Annulation',
-    timing: 'before',
-    description: "Avant de retourner une carte, soyez immunisé à son effet.",
-    emoji: '✴️',
-    count: 3,
-  },
-  {
-    effect: 'barriere',
-    name: 'Barrière',
-    timing: 'both',
-    description: "Protège d'un prochain effet qui vous ferait perdre une vie.",
-    emoji: '🛡️',
-    count: 3,
-  },
-];
-
 export function buildMagicDeck(): MagicCard[] {
-  const deck: MagicCard[] = [];
-  for (const tpl of MAGIC_TEMPLATES) {
-    for (let i = 0; i < tpl.count; i++) {
-      deck.push({ id: uid(), name: tpl.name, effect: tpl.effect, timing: tpl.timing, description: tpl.description, emoji: tpl.emoji });
+  const cards: MagicCard[] = [];
+  MAGIC_DEFINITIONS.forEach((def) => {
+    for (let i = 0; i < def.count; i++) {
+      cards.push({
+        id: uid(),
+        name: def.name,
+        effect: def.effect as MagicCardEffect,
+        timing: def.timing,
+        description: def.description,
+        emoji: def.emoji,
+      });
     }
-  }
-  return shuffle(deck);
+  });
+  return shuffle(cards);
 }
 
-// ─── Adjacency helpers ────────────────────────────────────────────────────────
-
-export function arrowToOffset(dir: ArrowDirection): Position {
-  switch (dir) {
-    case 'top-left':     return { row: -1, col: -1 };
-    case 'top':          return { row: -1, col:  0 };
-    case 'top-right':    return { row: -1, col:  1 };
-    case 'right':        return { row:  0, col:  1 };
-    case 'bottom-right': return { row:  1, col:  1 };
-    case 'bottom':       return { row:  1, col:  0 };
-    case 'bottom-left':  return { row:  1, col: -1 };
-    case 'left':         return { row:  0, col: -1 };
+export function arrowToOffset(direction: ArrowDirection): Position {
+  switch (direction) {
+    case 'top-left':
+      return { row: -1, col: -1 };
+    case 'top':
+      return { row: -1, col: 0 };
+    case 'top-right':
+      return { row: -1, col: 1 };
+    case 'right':
+      return { row: 0, col: 1 };
+    case 'bottom-right':
+      return { row: 1, col: 1 };
+    case 'bottom':
+      return { row: 1, col: 0 };
+    case 'bottom-left':
+      return { row: 1, col: -1 };
+    case 'left':
+      return { row: 0, col: -1 };
   }
 }
 
-export function getArrowTargets(card: GridCard, grid: GridCard[][]): Position[] {
-  const ROWS = grid.length, COLS = grid[0].length;
+export function getArrowTargets(card: GridCard, grid: GridCard[][], onlyUnflipped = true): Position[] {
+  const rows = grid.length;
+  const cols = grid[0]?.length ?? 0;
+
   return card.arrows
-    .map(dir => { const o = arrowToOffset(dir); return { row: card.position.row + o.row, col: card.position.col + o.col }; })
-    .filter(p => p.row >= 0 && p.row < ROWS && p.col >= 0 && p.col < COLS && !grid[p.row][p.col].flipped);
+    .map((direction) => {
+      const offset = arrowToOffset(direction);
+      return { row: card.position.row + offset.row, col: card.position.col + offset.col };
+    })
+    .filter((pos) => pos.row >= 0 && pos.row < rows && pos.col >= 0 && pos.col < cols)
+    .filter((pos) => (onlyUnflipped ? !grid[pos.row][pos.col].flipped : true));
 }
 
 export function getAdjacentPositions(pos: Position, grid: GridCard[][]): Position[] {
-  const ROWS = grid.length, COLS = grid[0].length;
   const dirs: Position[] = [
-    {row:-1,col:-1},{row:-1,col:0},{row:-1,col:1},{row:0,col:-1},
-    {row:0,col:1},{row:1,col:-1},{row:1,col:0},{row:1,col:1},
+    { row: -1, col: -1 },
+    { row: -1, col: 0 },
+    { row: -1, col: 1 },
+    { row: 0, col: -1 },
+    { row: 0, col: 1 },
+    { row: 1, col: -1 },
+    { row: 1, col: 0 },
+    { row: 1, col: 1 },
   ];
-  return dirs.map(d => ({row: pos.row+d.row, col: pos.col+d.col}))
-    .filter(p => p.row >= 0 && p.row < ROWS && p.col >= 0 && p.col < COLS);
+
+  const rows = grid.length;
+  const cols = grid[0]?.length ?? 0;
+
+  return dirs
+    .map((dir) => ({ row: pos.row + dir.row, col: pos.col + dir.col }))
+    .filter((next) => next.row >= 0 && next.row < rows && next.col >= 0 && next.col < cols);
+}
+
+export function samePosition(a: Position, b: Position): boolean {
+  return a.row === b.row && a.col === b.col;
+}
+
+export function positionKey(pos: Position): string {
+  return `${pos.row}:${pos.col}`;
 }

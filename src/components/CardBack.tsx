@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
 interface Props {
   peekedByOther?: boolean;
   className?: string;
 }
 
-export default function CardBack({ peekedByOther, className = '' }: Props) {
+export default function CardBack({ peekedByOther, className = "" }: Props) {
   return (
     <div
       className={[
-        'relative rounded-lg border-2 border-indigo-700 overflow-hidden w-full h-full',
-        'bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-950',
+        "relative rounded-lg border-2 border-indigo-700 overflow-hidden w-full h-full",
+        "bg-linear-to-br from-indigo-950 via-slate-900 to-indigo-950",
         className,
-      ].join(' ')}
+      ].join(" ")}
     >
       {/* Decorative pattern */}
       <div className="absolute inset-0 flex items-center justify-center">
@@ -31,7 +31,9 @@ export default function CardBack({ peekedByOther, className = '' }: Props) {
 
       {/* Peeked indicator */}
       {peekedByOther && (
-        <span className="absolute top-0.5 right-0.5 text-[8px] text-yellow-400">👁</span>
+        <span className="absolute top-0.5 right-0.5 text-[8px] text-yellow-400">
+          👁
+        </span>
       )}
     </div>
   );

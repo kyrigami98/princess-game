@@ -18,6 +18,25 @@ body {
   font-family: var(--font-geist-sans, Arial, Helvetica, sans-serif);
 }
 
+.deck-draw-card {
+  animation: deck-draw 700ms ease-out forwards;
+}
+
+@keyframes deck-draw {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.95;
+  }
+  65% {
+    transform: translate3d(28px, -20px, 0) scale(1.05);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate3d(74px, -38px, 0) scale(0.85);
+    opacity: 0;
+  }
+}
+
 /* Smooth card flip transitions */
 * {
   box-sizing: border-box;
