@@ -709,7 +709,9 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
     };
   }
 
-  if (card.effect !== 'immunity') {
+  // Vérifier l'immunité adverse uniquement pour les cartes qui ciblent l'adversaire
+  const targetsOpponent = card.effect === 'restriction' || card.effect === 'manipulation';
+  if (targetsOpponent) {
     const ignored = shouldIgnoreMagicEffect(next, opponentId);
     if (ignored) return ignored;
   }
@@ -758,14 +760,14 @@ export function endTurn(state: GameState): GameState {
     lastFlippedCard: null,
   };
 
-  if (next.magicDeck.length > 0) {
-    next = drawMagic(next, nextTurn, 1);
-  }
-
   if (next.players[nextTurn].skipNextTurn) {
     next = setPlayer(next, { ...next.players[nextTurn], skipNextTurn: false });
     next = addLog(next, `${next.players[nextTurn].name} passe son tour.`, 'warning', 'system');
     return endTurn(next);
+  }
+
+  if (next.magicDeck.length > 0) {
+    next = drawMagic(next, nextTurn, 1);
   }
 
   return next;
