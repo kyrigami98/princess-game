@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MagicCard, Player, PlayerID, Position } from "@/lib/types";
+import { forfeitGame } from "@/lib/gameLogic";
 import { useGameState } from "@/hooks/useGameState";
 import GameBoard from "@/components/GameBoard";
 import MagicHand from "@/components/MagicHand";
@@ -11,14 +12,25 @@ import ChoiceModal from "@/components/ChoiceModal";
 import DeckZone from "@/components/DeckZone";
 import DiscardZone from "@/components/DiscardZone";
 import CardBack from "@/components/CardBack";
+import CardFace from "@/components/CardFace";
 import CounterModal from "@/components/CounterModal";
+import TurnBanner from "@/components/TurnBanner";
+import CoinFlipModal from "@/components/CoinFlipModal";
 
 // ─── AI hand (face-down fanned cards) ────────────────────────────────────────
 
-function AiHand({ count }: { count: number }) {
+function AiHand({
+  count,
+  flipped = false,
+}: {
+  count: number;
+  flipped?: boolean;
+}) {
   const total = Math.max(count, 1);
   return (
-    <div className="flex items-end justify-center px-2 h-full">
+    <div
+      className={`flex ${flipped ? "items-start" : "items-end"} justify-center px-2`}
+    >
       {Array.from({ length: total }).map((_, index) => {
         const angle =
           total > 1
@@ -28,12 +40,12 @@ function AiHand({ count }: { count: number }) {
         return (
           <div
             key={index}
-            className="w-8 h-12 shrink-0"
+            className="w-24 h-36 shrink-0"
             style={{
               zIndex: total - index,
               marginLeft: index > 0 ? "-8px" : 0,
-              transform: `rotate(${angle}deg) translateY(${lift}px)`,
-              transformOrigin: "bottom center",
+              transform: `rotate(${angle}deg) translateY(${flipped ? -lift : lift}px) ${flipped ? "scaleY(-1)" : ""}`,
+              transformOrigin: flipped ? "top center" : "bottom center",
             }}
           >
             <CardBack />
@@ -108,41 +120,45 @@ function PlayerStrip({
   discardLabel: string;
   magicDeckCount: number;
   mirrored?: boolean;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   const statusBadge = (
     <div
       className={[
-        "flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-xl border shrink-0 min-w-12",
+        "flex items-center gap-2 px-2 py-1.5 rounded-xl border shrink-0",
         isActive
           ? "border-amber-500/50 bg-amber-950/30 shadow shadow-amber-500/20"
           : "border-white/5 bg-white/3",
       ].join(" ")}
     >
-      <span className="text-base leading-none">{isAI ? "⚔️" : "👑"}</span>
-      <span className="text-[9px] font-bold text-white leading-none truncate max-w-10">
-        {player.name}
-      </span>
-      <div className="flex flex-wrap gap-0.5 justify-center">
-        {player.immuneNextSingleLifeLoss && (
-          <span className="text-[10px]">🛡️</span>
-        )}
-        {player.counterMagicActive && <span className="text-[10px]">🌀</span>}
-        {player.immuneCharacterEffect && (
-          <span className="text-[10px]">✴️</span>
-        )}
-        {player.immuneNextMagic && <span className="text-[10px]">🔰</span>}
-        {player.skipNextTurn && <span className="text-[10px]">⏩</span>}
-        {isActive && (
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-        )}
+      {/* Name + status */}
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="text-base leading-none">{isAI ? "⚔️" : "👑"}</span>
+        <span className="text-[9px] font-bold text-white leading-none truncate max-w-14">
+          {player.name}
+        </span>
+        <div className="flex flex-wrap gap-0.5 justify-center">
+          {player.immuneNextSingleLifeLoss && (
+            <span className="text-[10px]">🛡️</span>
+          )}
+          {player.counterMagicActive && <span className="text-[10px]">🌀</span>}
+          {player.immuneCharacterEffect && (
+            <span className="text-[10px]">✴️</span>
+          )}
+          {player.immuneNextMagic && <span className="text-[10px]">🔰</span>}
+          {player.skipNextTurn && <span className="text-[10px]">⏩</span>}
+          {isActive && (
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          )}
+        </div>
       </div>
+      {/* Life dice next to name */}
+      <LifeDice lives={player.lives} />
     </div>
   );
 
   const sideInfo = (
     <div className="flex items-center gap-2 shrink-0">
-      <LifeDice lives={player.lives} />
       <DiscardZone label={discardLabel} cards={player.discardPile} />
       <DeckZone label="Magie" count={magicDeckCount} icon="🃏" tone="indigo" />
     </div>
@@ -191,12 +207,14 @@ interface GameProps {
   initialState?: import("@/lib/types").GameState;
   /** Latest remote state from Supabase realtime — synced on every opponent move */
   externalState?: import("@/lib/types").GameState | null;
+  onBack?: () => void;
 }
 
 export default function Game({
   multiplayerProps,
   initialState,
   externalState,
+  onBack,
 }: GameProps = {}) {
   const localRole = multiplayerProps?.localRole ?? "player1";
   const opponentRole: PlayerID =
@@ -209,6 +227,33 @@ export default function Game({
   });
 
   const [showLog, setShowLog] = useState(false);
+  const [confirmQuit, setConfirmQuit] = useState(false);
+
+  // ── Coin flip animation ──────────────────────────────────────────────────
+  const lastCoinFlipKey = useRef<string | null>(null);
+  const [coinFlipDisplay, setCoinFlipDisplay] = useState<{
+    victim: PlayerID;
+    victimName: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!state.coinFlipResult) return;
+    const key = `${state.coinFlipResult.turnNumber}-${state.coinFlipResult.victim}`;
+    if (lastCoinFlipKey.current === key) return;
+    lastCoinFlipKey.current = key;
+    setCoinFlipDisplay({
+      victim: state.coinFlipResult.victim,
+      victimName: state.players[state.coinFlipResult.victim].name,
+    });
+  }, [state.coinFlipResult, state.players]);
+
+  async function handleQuit() {
+    if (multiplayerProps && state.phase !== "game_over") {
+      const forfeited = forfeitGame(state, localRole);
+      await multiplayerProps.pushState(forfeited);
+    }
+    onBack?.();
+  }
 
   const pendingChoice = state.pendingChoice;
   const isLocalTurn = state.currentTurn === localRole;
@@ -269,9 +314,7 @@ export default function Game({
           discardLabel="Défausse adversaire"
           magicDeckCount={state.magicDeck.length}
           mirrored
-        >
-          <AiHand count={state.players[opponentRole].hand.length} />
-        </PlayerStrip>
+        />
 
         {/* ── Board ────────────────────────────────────────────────────── */}
         <section
@@ -351,12 +394,36 @@ export default function Game({
                   ? "● Connecté"
                   : "◌ En attente…"}
               </span>
+              {!confirmQuit ? (
+                <button
+                  onClick={() => setConfirmQuit(true)}
+                  className="text-[10px] px-2 py-0.5 rounded-lg border border-rose-700/40 text-rose-500 hover:text-rose-300 hover:border-rose-500/60 transition-colors"
+                >
+                  Quitter
+                </button>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-rose-400">Confirmer ?</span>
+                  <button
+                    onClick={handleQuit}
+                    className="text-[10px] px-2 py-0.5 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-bold transition-colors"
+                  >
+                    Oui
+                  </button>
+                  <button
+                    onClick={() => setConfirmQuit(false)}
+                    className="text-[10px] px-2 py-0.5 rounded-lg border border-white/10 text-slate-400 hover:text-white transition-colors"
+                  >
+                    Non
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Grid */}
-          <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center p-2 overflow-hidden">
-            <div className="h-full max-h-full aspect-square w-auto max-w-full">
+          <div className="relative z-10 flex-1 min-h-0 overflow-auto p-2">
+            <div className="min-w-max min-h-full flex items-center justify-center">
               <GameBoard
                 state={state}
                 onCardClick={handleCardClick}
@@ -372,49 +439,53 @@ export default function Game({
           isActive={isLocalTurn}
           discardLabel="Votre défausse"
           magicDeckCount={state.magicDeck.length}
-        >
-          <div className="w-full h-full flex flex-col gap-1 min-h-0">
-            <div className="flex items-center gap-2 px-1 shrink-0">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                Votre main
-              </span>
-              {isLocalTurn &&
-                state.phase === "play_magic_before" &&
-                !pendingChoice &&
-                !state.pendingCounter && (
-                  <button
-                    onClick={actions.skipMagicBefore}
-                    className="text-xs px-3 py-1 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white font-bold transition-colors shadow shadow-indigo-900/40"
-                  >
-                    Retourner une carte
-                  </button>
-                )}
-              {isLocalTurn &&
-                state.phase === "play_magic_after" &&
-                !pendingChoice &&
-                !state.pendingCounter && (
-                  <button
-                    onClick={actions.skipMagicAfter}
-                    className="text-xs px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold transition-colors"
-                  >
-                    Finir le tour
-                  </button>
-                )}
-            </div>
-            <div className="flex-1 min-h-0">
-              <MagicHand
-                hand={state.players[localRole].hand}
-                phase={state.phase}
-                selectedCard={state.selectedMagicCard}
-                onSelect={handleMagicSelect}
-                disabled={disableHand}
-              />
-            </div>
-          </div>
-        </PlayerStrip>
+        />
       </main>
-
-      {/* ── Log sidebar ──────────────────────────────────────────────────── */}
+      {/* ── Opponent hand — fixed top edge ───────────────────────────── */}
+      <div
+        className="fixed left-0 right-0 top-0 z-5 flex justify-center pointer-events-none"
+        style={{ transform: "translateY(-2rem)" }}
+      >
+        <AiHand count={state.players[opponentRole].hand.length} flipped />
+      </div>
+      {/* ── Phase action buttons — floating above local hand ──────────── */}
+      {isLocalTurn && !pendingChoice && !state.pendingCounter && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-30 flex gap-3"
+          style={{ bottom: "9rem" }}
+        >
+          {state.phase === "play_magic_before" && (
+            <button
+              onClick={actions.skipMagicBefore}
+              className="text-sm px-5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white font-bold transition-all shadow-lg shadow-indigo-900/50 hover:scale-105 active:scale-95"
+            >
+              ↩ Retourner une carte
+            </button>
+          )}
+          {state.phase === "play_magic_after" && (
+            <button
+              onClick={actions.skipMagicAfter}
+              className="text-sm px-5 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold transition-all shadow-lg shadow-black/40 hover:scale-105 active:scale-95"
+            >
+              ✓ Finir le tour
+            </button>
+          )}
+        </div>
+      )}
+      {/* ── Local hand — fixed bottom edge, partially off-screen ─────── */}
+      <div
+        className="fixed left-0 right-0 bottom-0 z-20 pb-0"
+        style={{ transform: "translateY(2rem)" }}
+      >
+        <MagicHand
+          hand={state.players[localRole].hand}
+          phase={state.phase}
+          selectedCard={state.selectedMagicCard}
+          onSelect={handleMagicSelect}
+          disabled={disableHand}
+        />
+      </div>
+      {/* ── Log sidebar ──────────────────────────────────────────────────── */}{" "}
       {showLog && (
         <aside className="fixed right-3 bottom-3 z-30 w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-white/10 bg-[#0a0818]/95 p-3 shadow-2xl backdrop-blur-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
@@ -426,9 +497,13 @@ export default function Game({
       {/* ── Fenêtre de contre-magie (joueur local) ────────────────────────────────── */}
       {isLocalCounterWindow && state.pendingCounter && (
         <CounterModal
-          description={state.pendingCounter.description}
-          counterCards={state.players[localRole].hand.filter(
-            (c) => c.effect === "counter_magic",
+          pendingCounter={state.pendingCounter}
+          counterCards={state.players[localRole].hand.filter((c) =>
+            state.pendingCounter?.kind === "character"
+              ? c.effect === "immunity"
+              : state.pendingCounter?.kind === "barrier"
+                ? c.effect === "barrier"
+                : c.effect === "counter_magic",
           )}
           onResolve={(counterCardId) => actions.resolveCounter(counterCardId)}
         />
@@ -457,7 +532,23 @@ export default function Game({
             }}
           />
         )}
-
+      {/* ── Turn banner ─────────────────────────────────────────── */}
+      <TurnBanner
+        currentTurn={state.currentTurn}
+        localRole={localRole}
+        phase={state.phase}
+        localName={state.players[localRole].name}
+        opponentName={state.players[opponentRole].name}
+      />
+      {/* ── Coin flip animation ───────────────────────────────────────── */}
+      {coinFlipDisplay && (
+        <CoinFlipModal
+          victim={coinFlipDisplay.victim}
+          victimName={coinFlipDisplay.victimName}
+          localRole={localRole}
+          onDone={() => setCoinFlipDisplay(null)}
+        />
+      )}
       {/* ── Game over banner ───────────────────────────────────────── */}
       {state.phase === "game_over" && state.winner && (
         <div
@@ -482,10 +573,18 @@ export default function Game({
             </p>
             <p className="text-white/60 text-xs">
               {state.winner === localRole
-                ? "La Princesse est saine et sauve !"
+                ? "Votre adversaire a quitté la partie."
                 : "Votre adversaire a remporté la partie."}
             </p>
-          </div>
+          </div>{" "}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="ml-2 text-[11px] px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold transition-colors shrink-0"
+            >
+              Retour au menu
+            </button>
+          )}{" "}
         </div>
       )}
     </div>

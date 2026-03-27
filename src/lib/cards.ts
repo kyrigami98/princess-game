@@ -119,7 +119,11 @@ export function getModeGridDefinitions(): GridCardDefinition[] {
 }
 
 export function buildGrid(rows = 4, cols = 6): GridCard[][] {
-  const defs = getModeGridDefinitions();
+  const needed = rows * cols;
+  // Base pool : 5 sorts + 1 mort + autant de personnages que nécessaire (max 44)
+  const characterCount = Math.min(needed - SPELLS.length - 1, ALL_CHARACTERS.length);
+  const pickedCharacters = shuffle(ALL_CHARACTERS).slice(0, characterCount);
+  const defs = shuffle([...pickedCharacters, ...SPELLS, DEATH_CARD]);
   const grid: GridCard[][] = [];
   let cursor = 0;
 

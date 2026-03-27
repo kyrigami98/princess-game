@@ -62,8 +62,10 @@ export default function GameBoard({
 
   return (
     <div
-      className="grid gap-2 w-full h-full"
-      style={{ gridTemplateColumns: `repeat(6, 1fr)` }}
+      className="grid gap-2"
+      style={{
+        gridTemplateColumns: `repeat(${grid[0]?.length ?? 6}, minmax(5rem, 7rem))`,
+      }}
     >
       {grid.map((row) =>
         row.map((card) => (

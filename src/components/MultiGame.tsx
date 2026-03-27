@@ -64,6 +64,7 @@ export default function MultiGame({
       }}
       initialState={remoteState}
       externalState={remoteState}
+      onBack={onBack}
     />
   );
 }

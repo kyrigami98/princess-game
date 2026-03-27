@@ -85,6 +85,7 @@ export default function CardTile({
           anchorRect={hoverRect}
           showBack={false}
           previewSize="xl"
+          preferredSide="right"
         />
       )}
     </>

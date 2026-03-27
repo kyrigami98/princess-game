@@ -14,10 +14,8 @@ interface Props {
 }
 
 function canPlayTiming(timing: MagicTiming, phase: GamePhase): boolean {
-  if (phase === "play_magic_before")
-    return timing === "before" || timing === "counter";
-  if (phase === "play_magic_after")
-    return timing === "after" || timing === "counter";
+  if (phase === "play_magic_before") return timing === "before";
+  if (phase === "play_magic_after") return timing === "after";
   return false;
 }
 
@@ -26,13 +24,11 @@ function MagicCardButton({
   playable,
   isSelected,
   onSelect,
-  mobile,
 }: {
   card: MagicCard;
   playable: boolean;
   isSelected: boolean;
   onSelect: (c: MagicCard | null) => void;
-  mobile?: boolean;
 }) {
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
 
@@ -59,19 +55,19 @@ function MagicCardButton({
         onMouseLeave={() => setHoverRect(null)}
         className={[
           "relative flex-none transition-all duration-200",
-          mobile ? "w-20 h-30" : "w-16 h-24",
-          isSelected ? "-translate-y-6 scale-110 z-20" : "",
+          "w-24 h-36",
+          isSelected ? "-translate-y-14 scale-110 z-20" : "",
           playable && !isSelected
-            ? "hover:-translate-y-4 hover:z-10 cursor-pointer"
+            ? "hover:-translate-y-10 hover:z-10 cursor-pointer"
             : "",
-          !playable ? "opacity-40 cursor-not-allowed grayscale" : "",
+          !playable ? "cursor-not-allowed grayscale" : "",
         ].join(" ")}
       >
         {/* Selection glow */}
         {isSelected && (
           <div className="absolute inset-0 rounded-lg ring-2 ring-amber-400 shadow-lg shadow-amber-500/50 z-10" />
         )}
-        <CardFace card={cardData} size="sm" dimmed={!playable && !isSelected} />
+        <CardFace card={cardData} size="sm" />
       </button>
 
       {hoverRect && (
@@ -89,11 +85,7 @@ export default function MagicHand({
   disabled,
 }: Props) {
   if (hand.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center text-slate-600 text-sm">
-        Aucune carte magie en main
-      </div>
-    );
+    return null;
   }
 
   // Fan: slight rotation for each card (only visible if > 3 cards)
@@ -101,8 +93,8 @@ export default function MagicHand({
   const maxAngle = Math.min(totalCards * 1.5, 8); // max ±8°
 
   return (
-    <div className="h-full flex items-end pb-3 px-2 sm:px-4">
-      <div className="md:hidden w-full overflow-x-auto overflow-y-hidden">
+    <div className="flex items-end justify-center w-full overflow-visible px-4">
+      <div className="md:hidden w-full overflow-x-auto">
         <div className="flex items-end gap-2 min-w-max px-2 snap-x snap-mandatory">
           {hand.map((card) => {
             const playable = !disabled && canPlayTiming(card.timing, phase);
@@ -114,7 +106,6 @@ export default function MagicHand({
                   playable={playable}
                   isSelected={isSelected}
                   onSelect={onSelect}
-                  mobile
                 />
               </div>
             );

@@ -61,14 +61,13 @@ function makePlayer(id: PlayerID, name: string, hand: MagicCard[]): Player {
     immuneNextPositiveCharacter: false,
     immuneNextLifeLoss: false,
     immuneNextSingleLifeLoss: false,
-    playedMagicThisTurn: false,
   };
 }
 
-export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joueur 2'): GameState {
+export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joueur 2', gridRows = 4, gridCols = 6): GameState {
   const magicDeck = buildMagicDeck();
   return {
-    grid: buildGrid(),
+    grid: buildGrid(gridRows, gridCols),
     players: {
       player1: makePlayer('player1', player1Name, magicDeck.splice(0, STARTING_HAND)),
       player2: makePlayer('player2', player2Name, magicDeck.splice(0, STARTING_HAND)),
@@ -84,6 +83,7 @@ export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joue
     forcedFlipFor: null,
     pendingChoice: null,
     pendingCounter: null,
+    coinFlipResult: null,
     selectedMagicCard: null,
     lastFlippedCard: null,
     winner: null,
@@ -142,7 +142,9 @@ function transferRandomMagic(state: GameState, from: PlayerID, to: PlayerID): Ga
 }
 
 function completeResolution(state: GameState): GameState {
-  if (state.phase === 'game_over' || state.pendingChoice) return state;
+  if (state.phase === 'game_over' || state.pendingChoice || state.pendingCounter) return state;
+  // Ne pas changer de phase si on est déjà dans une phase de magie (before ou after)
+  if (state.phase === 'play_magic_before' || state.phase === 'play_magic_after') return state;
   return { ...state, phase: 'play_magic_after' };
 }
 
@@ -167,9 +169,25 @@ function consumeProtection(
   return addLog(setPlayer(state, updated), message, 'success', 'system');
 }
 
+function applyLifeLossDirect(state: GameState, playerId: PlayerID, amount: number, source: 'character' | 'spell' | 'magic'): GameState {
+  if (amount <= 0 || state.phase === 'game_over') return state;
+  const player = state.players[playerId];
+  const updatedLives = Math.max(0, player.lives - amount);
+  let next = setPlayer(state, { ...player, lives: updatedLives });
+  next = addLog(next, `-${amount} vie pour ${player.name}.`, 'danger', 'system');
+  if (updatedLives <= 0) {
+    return {
+      ...addLog(next, `${player.name} est éliminé${source === 'spell' ? ' par un sort' : ''}.`, 'danger', 'system'),
+      phase: 'game_over',
+      winner: opp(playerId),
+    };
+  }
+  return next;
+}
+
 function applyLifeLoss(state: GameState, playerId: PlayerID, amount: number, source: 'character' | 'spell' | 'magic'): GameState {
   if (amount <= 0 || state.phase === 'game_over') return state;
-  let next = state;
+  const next = state;
   const player = next.players[playerId];
 
   if (player.immuneNextLifeLoss) {
@@ -180,19 +198,21 @@ function applyLifeLoss(state: GameState, playerId: PlayerID, amount: number, sou
     return consumeProtection(next, playerId, 'immuneNextSingleLifeLoss', `🛡️ ${player.name} annule cette perte de 1 vie.`);
   }
 
-  const updatedLives = Math.max(0, player.lives - amount);
-  next = setPlayer(next, { ...player, lives: updatedLives });
-  next = addLog(next, `-${amount} vie pour ${player.name}.`, 'danger', 'system');
-
-  if (updatedLives <= 0) {
+  // Fenêtre de Barrière : si le joueur a une carte Barrière et aucune fenêtre de contre déjà active
+  if (amount === 1 && !next.pendingCounter && player.hand.some((c) => c.effect === 'barrier')) {
     return {
-      ...addLog(next, `${player.name} est éliminé${source === 'spell' ? ' par un sort' : ''}.`, 'danger', 'system'),
-      phase: 'game_over',
-      winner: opp(playerId),
+      ...next,
+      pendingCounter: {
+        kind: 'barrier',
+        forPlayer: playerId,
+        description: `${player.name} est sur le point de perdre 1 vie.`,
+        amount,
+        source,
+      },
     };
   }
 
-  return next;
+  return applyLifeLossDirect(next, playerId, amount, source);
 }
 
 function drawDefaultCard(state: GameState, playerId: PlayerID): GameState {
@@ -508,6 +528,7 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   assassin: (state) => {
     const victim: PlayerID = Math.random() < 0.5 ? state.currentTurn : opp(state.currentTurn);
     let next = addLog(state, '🗡️ Assassin : pile ou face…', 'warning', 'system');
+    next = { ...next, coinFlipResult: { victim, turnNumber: state.turnNumber } };
     next = applyLifeLoss(next, victim, 1, 'character');
     return next;
   },
@@ -598,8 +619,22 @@ export function flipCard(state: GameState, position: Position): GameState {
 
   next = clearConsumedForcedConstraints(next, position);
   next = addLog(next, `${next.players[next.currentTurn].name} retourne « ${card.label} ».`, 'info', next.currentTurn);
-  next = runGridEffect(next, flippedCard);
 
+  // Fenêtre de contre : demander à l'adversaire avant d'appliquer l'effet
+  const opponentId = opp(next.currentTurn);
+  if (next.players[opponentId].hand.some((c) => c.effect === 'immunity')) {
+    return {
+      ...next,
+      pendingCounter: {
+        kind: 'character',
+        forPlayer: opponentId,
+        description: `${next.players[next.currentTurn].name} retourne « ${card.label} ».`,
+        pendingGridCard: flippedCard,
+      },
+    };
+  }
+
+  next = runGridEffect(next, flippedCard);
   return completeResolution(next);
 }
 
@@ -639,36 +674,26 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
   const actorId = state.currentTurn;
   const opponentId = opp(actorId);
   const actor = state.players[actorId];
-  const opponent = state.players[opponentId];
 
   if (!actor.hand.some((c) => c.id === card.id)) return state;
 
   if (card.timing === 'before' && state.phase !== 'play_magic_before') return state;
   if (card.timing === 'after' && state.phase !== 'play_magic_after') return state;
 
-  // Contre-magie ne peut être jouée que via la fenêtre de contre
+  // Ces cartes ne peuvent être jouées que via la fenêtre de contre
   if (card.effect === 'counter_magic') {
     return addLog(state, '🌀 Contre-magie : activez-la en réponse à une magie adverse.', 'warning', actorId);
   }
-
-  if (card.timing !== 'counter' && actor.playedMagicThisTurn) {
-    return addLog(state, 'Une seule carte de magie (hors contre) est autorisée par tour.', 'warning', actorId);
+  if (card.effect === 'barrier') {
+    return addLog(state, '🛡️ Barrière : jouez-la en réponse à une perte de vie.', 'warning', actorId);
   }
 
-  // Retirer la carte de la main et marquer le tour
+  // Retirer la carte de la main
   let next = setPlayer(state, {
     ...actor,
     hand: actor.hand.filter((c) => c.id !== card.id),
     discardPile: [...actor.discardPile, card],
-    playedMagicThisTurn: card.timing === 'counter' ? actor.playedMagicThisTurn : true,
   });
-
-  // Vérification proactive (contre-magie active précédemment)
-  if (card.timing !== 'counter' && next.players[opponentId].counterMagicActive) {
-    next = setPlayer(next, { ...next.players[opponentId], counterMagicActive: false });
-    next = addLog(next, `🌀 Contre-magie : ${card.name} est annulée.`, 'warning', 'system');
-    return next;
-  }
 
   // Fenêtre de contre réactive : si l'adversaire a une contre-magie en main
   if (card.timing !== 'counter' && next.players[opponentId].hand.some((c) => c.effect === 'counter_magic')) {
@@ -676,6 +701,7 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
     return {
       ...next,
       pendingCounter: {
+        kind: 'magic',
         forPlayer: opponentId,
         description: `${next.players[actorId].name} joue ${card.name}.`,
         pendingMagicCard: card,
@@ -683,7 +709,7 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
     };
   }
 
-  if (card.effect !== 'immunity' && card.effect !== 'barrier') {
+  if (card.effect !== 'immunity') {
     const ignored = shouldIgnoreMagicEffect(next, opponentId);
     if (ignored) return ignored;
   }
@@ -694,6 +720,12 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
   next = addLog(next, `${next.players[actorId].name} joue ${card.name}.`, 'info', actorId);
   next = handler(next, card);
   return next;
+}
+
+export function forfeitGame(state: GameState, playerId: PlayerID): GameState {
+  if (state.phase === 'game_over') return state;
+  const next = addLog(state, `${state.players[playerId].name} abandonne la partie.`, 'warning', 'system');
+  return { ...next, phase: 'game_over', winner: opp(playerId) };
 }
 
 export function skipMagicBefore(state: GameState): GameState {
@@ -722,11 +754,9 @@ export function endTurn(state: GameState): GameState {
     selectedMagicCard: null,
     pendingChoice: null,
     pendingCounter: null,
+    coinFlipResult: null,
     lastFlippedCard: null,
   };
-
-  const current = next.players[nextTurn];
-  next = setPlayer(next, { ...current, playedMagicThisTurn: false });
 
   if (next.magicDeck.length > 0) {
     next = drawMagic(next, nextTurn, 1);
@@ -829,12 +859,10 @@ export function resolveDiscardAnyChoice(state: GameState, choice: 'lose_life' | 
 export function resolveCounterWindow(state: GameState, counterCardId?: string): GameState {
   if (!state.pendingCounter) return state;
 
-  const { pendingMagicCard, forPlayer } = state.pendingCounter;
-  const actorId = opp(forPlayer); // le joueur qui a joué la carte de magie
+  const { forPlayer } = state.pendingCounter;
   let next: GameState = { ...state, pendingCounter: null };
 
   if (counterCardId) {
-    // L'adversaire joue sa carte Contre-magie
     const counterPlayer = next.players[forPlayer];
     const counterCard = counterPlayer.hand.find((c) => c.id === counterCardId);
     if (!counterCard) return next; // sécurité
@@ -844,26 +872,42 @@ export function resolveCounterWindow(state: GameState, counterCardId?: string): 
       hand: counterPlayer.hand.filter((c) => c.id !== counterCardId),
       discardPile: [...counterPlayer.discardPile, counterCard],
     });
-    next = addLog(
-      next,
-      `🌀 ${counterCard.name} : l'effet de ${pendingMagicCard.name} est annulé.`,
-      'warning',
-      'system',
-    );
+
+    if (state.pendingCounter.kind === 'barrier') {
+      next = addLog(next, `🛡️ ${counterPlayer.name} utilise ${counterCard.name} : perte de vie annulée.`, 'success', 'system');
+      return completeResolution(next);
+    }
+
+    const pendingName = state.pendingCounter.kind === 'magic'
+      ? state.pendingCounter.pendingMagicCard.name
+      : state.pendingCounter.pendingGridCard.label;
+
+    next = addLog(next, `🌀 ${counterCard.name} : l'effet de ${pendingName} est annulé.`, 'warning', 'system');
+
+    if (state.pendingCounter.kind === 'character') {
+      return completeResolution(next);
+    }
     return next;
   }
 
-  // Adversaire passe → appliquer l'effet de la carte de magie
-  if (
-    pendingMagicCard.effect !== 'counter_magic' &&
-    pendingMagicCard.effect !== 'immunity' &&
-    pendingMagicCard.effect !== 'barrier'
-  ) {
-    const ignored = shouldIgnoreMagicEffect(next, forPlayer);
-    if (ignored) return ignored;
+  // Joueur passe → appliquer l'effet
+  if (state.pendingCounter.kind === 'magic') {
+    const { pendingMagicCard } = state.pendingCounter;
+    if (pendingMagicCard.effect !== 'immunity') {
+      const ignored = shouldIgnoreMagicEffect(next, forPlayer);
+      if (ignored) return ignored;
+    }
+    const handler = MAGIC_EFFECTS[pendingMagicCard.effect];
+    if (!handler) return next;
+    return handler(next, pendingMagicCard);
+  } else if (state.pendingCounter.kind === 'character') {
+    const { pendingGridCard } = state.pendingCounter;
+    next = runGridEffect(next, pendingGridCard);
+    return completeResolution(next);
+  } else {
+    // kind === 'barrier' : perte de vie directe sans nouvelle fenêtre
+    const { amount, source } = state.pendingCounter;
+    next = applyLifeLossDirect(next, forPlayer, amount, source);
+    return completeResolution(next);
   }
-
-  const handler = MAGIC_EFFECTS[pendingMagicCard.effect];
-  if (!handler) return next;
-  return handler(next, pendingMagicCard);
 }

@@ -87,20 +87,6 @@ export default function CardFace({
         />
       )}
 
-      {/* Arrow indicators */}
-      {card.arrows &&
-        card.arrows.length > 0 &&
-        card.arrows.map((dir) => (
-          <span
-            key={dir}
-            className={`absolute font-black text-amber-300 drop-shadow ${ARROW_POSITIONS[dir]} ${
-              size === "sm" ? "text-[10px]" : "text-sm"
-            }`}
-          >
-            {ARROW_ICONS[dir]}
-          </span>
-        ))}
-
       {/* Magic timing badge */}
       {card.isMagic && card.timing && (
         <span

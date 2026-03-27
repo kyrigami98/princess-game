@@ -29,6 +29,8 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
   const [gameCode, setGameCode] = useState("");
   const [joinInput, setJoinInput] = useState("");
   const [username, setUsername] = useState(() => getOrCreatePlayerName());
+  const [gridRows, setGridRows] = useState(4);
+  const [gridCols, setGridCols] = useState(6);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -53,7 +55,12 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
 
     const playerId = getOrCreatePlayerId();
     const code = generateGameCode();
-    const initialState = createInitialState(name);
+    const initialState = createInitialState(
+      name,
+      "Joueur 2",
+      gridRows,
+      gridCols,
+    );
 
     const { error: insertError } = await supabase.from("games").insert({
       code,
@@ -76,7 +83,12 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
       .channel(`lobby-${code}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "games", filter: `code=eq.${code}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "games",
+          filter: `code=eq.${code}`,
+        },
         (payload) => {
           const row = payload.new as GameRow;
           if (row.player2_id && row.status === "playing") {
@@ -92,7 +104,10 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
 
   async function handleJoin() {
     const code = joinInput.trim().toUpperCase();
-    if (code.length < 4) { setError("Code de partie invalide."); return; }
+    if (code.length < 4) {
+      setError("Code de partie invalide.");
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -103,7 +118,11 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
     const playerId = getOrCreatePlayerId();
 
     const { data, error: fetchError } = await supabase
-      .from("games").select("*").eq("code", code).eq("status", "waiting").single<GameRow>();
+      .from("games")
+      .select("*")
+      .eq("code", code)
+      .eq("status", "waiting")
+      .single<GameRow>();
 
     if (fetchError || !data) {
       setError("Partie introuvable ou deja commencee.");
@@ -154,7 +173,9 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
           {screen === "menu" && (
             <>
               <h2 className="text-xl font-bold text-white mb-1">Multijoueur</h2>
-              <p className="text-slate-400 text-sm mb-5">Joue contre un ami en temps reel.</p>
+              <p className="text-slate-400 text-sm mb-5">
+                Joue contre un ami en temps reel.
+              </p>
 
               <div className="mb-5">
                 <label className="block text-[11px] text-slate-400 uppercase tracking-wider font-semibold mb-1.5">
@@ -168,6 +189,41 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
                   placeholder="Joueur mystere"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50 transition-colors text-sm"
                 />
+              </div>
+
+              {/* Grid size */}
+              <div className="mb-5 flex flex-col gap-3">
+                <label className="block text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+                  Taille de la grille ({gridRows}×{gridCols})
+                </label>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 w-16">
+                      Lignes : {gridRows}
+                    </span>
+                    <input
+                      type="range"
+                      min={2}
+                      max={7}
+                      value={gridRows}
+                      onChange={(e) => setGridRows(Number(e.target.value))}
+                      className="flex-1 accent-amber-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 w-16">
+                      Colonnes : {gridCols}
+                    </span>
+                    <input
+                      type="range"
+                      min={2}
+                      max={6}
+                      value={gridCols}
+                      onChange={(e) => setGridCols(Number(e.target.value))}
+                      className="flex-1 accent-amber-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex flex-col gap-3">
@@ -206,7 +262,9 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
               </div>
 
               {error && (
-                <p className="mt-3 text-rose-400 text-sm text-center">{error}</p>
+                <p className="mt-3 text-rose-400 text-sm text-center">
+                  {error}
+                </p>
               )}
             </>
           )}
@@ -214,15 +272,22 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
           {screen === "waiting" && (
             <div className="text-center py-4">
               <div className="text-4xl mb-4">&#x23F3;</div>
-              <h2 className="text-lg font-bold text-white mb-2">En attente d&apos;un adversaire...</h2>
-              <p className="text-slate-400 text-sm mb-6">Partage ce code a ton ami :</p>
+              <h2 className="text-lg font-bold text-white mb-2">
+                En attente d&apos;un adversaire...
+              </h2>
+              <p className="text-slate-400 text-sm mb-6">
+                Partage ce code a ton ami :
+              </p>
               <div className="inline-block px-6 py-3 rounded-xl bg-white/5 border border-amber-500/30 font-mono text-3xl font-bold text-amber-400 tracking-widest mb-4">
                 {gameCode}
               </div>
-              <p className="text-slate-500 text-xs">La partie demarrera automatiquement.</p>
+              <p className="text-slate-500 text-xs">
+                La partie demarrera automatiquement.
+              </p>
               <button
                 onClick={() => {
-                  if (channelRef.current) supabase.removeChannel(channelRef.current);
+                  if (channelRef.current)
+                    supabase.removeChannel(channelRef.current);
                   setScreen("menu");
                   setGameCode("");
                 }}

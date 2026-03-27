@@ -24,8 +24,8 @@ export default function GameOverScreen({
         </h2>
         <p className="text-slate-400 mb-6">
           {isHumanWinner
-            ? "Vous avez triomphé de votre adversaire. La Princesse est saine et sauve !"
-            : "Votre adversaire a remporté la partie. La mort a eu raison de vous..."}
+            ? "Votre adversaire a abandonné la partie."
+            : "Votre adversaire a remporté la partie."}
         </p>
         {onRestart && (
           <button

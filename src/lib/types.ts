@@ -123,7 +123,6 @@ export interface Player {
   immuneNextPositiveCharacter: boolean;
   immuneNextLifeLoss: boolean;
   immuneNextSingleLifeLoss: boolean;
-  playedMagicThisTurn: boolean;
 }
 
 export type PendingChoiceType =
@@ -139,14 +138,10 @@ export interface PendingChoice {
   amount?: number;
 }
 
-export interface PendingCounter {
-  /** Le joueur qui peut jouer une carte contre */
-  forPlayer: PlayerID;
-  /** Description de l'effet entrant (pour l'affichage) */
-  description: string;
-  /** La carte de magie dont l'effet est suspendu */
-  pendingMagicCard: MagicCard;
-}
+export type PendingCounter =
+  | { kind: 'magic'; forPlayer: PlayerID; description: string; pendingMagicCard: MagicCard }
+  | { kind: 'character'; forPlayer: PlayerID; description: string; pendingGridCard: GridCard }
+  | { kind: 'barrier'; forPlayer: PlayerID; description: string; amount: number; source: 'character' | 'spell' | 'magic' };
 
 export type GamePhase =
   | 'play_magic_before'
@@ -187,6 +182,7 @@ export interface GameState {
   lastFlippedCard: GridCard | null;
   winner: PlayerID | null;
   pendingCounter: PendingCounter | null;
+  coinFlipResult: { victim: PlayerID; turnNumber: number } | null;
   log: LogEntry[];
   magicDeck: MagicCard[];
 }
