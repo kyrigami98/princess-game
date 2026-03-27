@@ -7,7 +7,6 @@ import GameBoard from "@/components/GameBoard";
 import MagicHand from "@/components/MagicHand";
 import GameLog from "@/components/GameLog";
 import PhaseIndicator from "@/components/PhaseIndicator";
-import GameOverScreen from "@/components/GameOverScreen";
 import ChoiceModal from "@/components/ChoiceModal";
 import DeckZone from "@/components/DeckZone";
 import DiscardZone from "@/components/DiscardZone";
@@ -119,7 +118,7 @@ function PlayerStrip({
           : "border-white/5 bg-white/3",
       ].join(" ")}
     >
-      <span className="text-base leading-none">{isAI ? "🤖" : "👑"}</span>
+      <span className="text-base leading-none">{isAI ? "⚔️" : "👑"}</span>
       <span className="text-[9px] font-bold text-white leading-none truncate max-w-10">
         {player.name}
       </span>
@@ -256,12 +255,12 @@ export default function Game({
   return (
     <div className="h-screen game-bg text-white overflow-hidden flex flex-col">
       <main className="flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)_auto] gap-1.5 p-1.5 overflow-hidden">
-        {/* ── AI strip ─────────────────────────────────────────────────── */}
+        {/* ── Opponent strip ───────────────────────────────────────────── */}
         <PlayerStrip
           player={state.players.ai}
           isActive={state.currentTurn === "ai"}
           isAI
-          discardLabel="Défausse IA"
+          discardLabel="Défausse adversaire"
           magicDeckCount={state.magicDeck.length}
           mirrored
         >
@@ -439,9 +438,30 @@ export default function Game({
           />
         )}
 
-      {/* ── Game over ────────────────────────────────────────────────────── */}
+      {/* ── Game over banner ───────────────────────────────────────── */}
       {state.phase === "game_over" && state.winner && (
-        <GameOverScreen winner={state.winner} />
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-sm"
+          style={{
+            background: state.winner === "human"
+              ? "rgba(120,53,15,0.92)"
+              : "rgba(30,10,60,0.92)",
+            borderColor: state.winner === "human"
+              ? "rgba(251,191,36,0.6)"
+              : "rgba(139,92,246,0.5)",
+          }}
+        >
+          <span className="text-2xl">{state.winner === "human" ? "👑" : "⚔️"}</span>
+          <div>
+            <p className="text-white font-bold text-sm leading-tight">
+              {state.winner === "human" ? "Victoire !" : "Défaite..."}
+            </p>
+            <p className="text-white/60 text-xs">
+              {state.winner === "human"
+                ? "La Princesse est saine et sauve !"
+                : "Votre adversaire a remporté la partie."}
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

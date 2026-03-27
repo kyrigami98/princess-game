@@ -161,7 +161,7 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
                   <div className="flex-1 h-px bg-white/10" />
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
                   <input
                     type="text"
                     value={joinInput}
@@ -169,12 +169,12 @@ export default function MultiplayerLobby({ onJoinGame, onBack }: Props) {
                     onKeyDown={(e) => e.key === "Enter" && handleJoin()}
                     maxLength={4}
                     placeholder="CODE"
-                    className="flex-1 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-violet-500/60 transition-colors"
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-violet-500/60 transition-colors"
                   />
                   <button
                     onClick={handleJoin}
                     disabled={isLoading || joinInput.trim().length < 4}
-                    className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-600 disabled:opacity-40 text-white font-bold transition-colors"
+                    className="w-full py-2.5 rounded-xl bg-violet-700 hover:bg-violet-600 disabled:opacity-40 text-white font-bold transition-colors"
                   >
                     Rejoindre
                   </button>

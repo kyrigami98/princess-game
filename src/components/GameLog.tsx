@@ -16,7 +16,7 @@ const TYPE_STYLES: Record<LogEntry['type'], string> = {
 
 const PLAYER_LABEL: Record<string, string> = {
   human:  '👑 Vous',
-  ai:     '🤖 IA',
+  ai:     '⚔️ Adversaire',
   system: '📜',
 };
 

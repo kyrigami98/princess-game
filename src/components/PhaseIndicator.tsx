@@ -28,7 +28,7 @@ export default function PhaseIndicator({
   if (currentTurn === "ai" || aiThinking) {
     return (
       <span className="text-xs text-slate-400 animate-pulse">
-        🤖 L&apos;IA joue…
+        ⚔️ L&apos;adversaire joue…
       </span>
     );
   }
