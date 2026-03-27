@@ -13,7 +13,6 @@ import type {
 
 const STARTING_LIVES = 3;
 const STARTING_HAND = 2;
-const STARTING_LIFE_DECK = 10;
 
 function uid(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -98,7 +97,6 @@ export function createInitialState(): GameState {
       },
     ],
     magicDeck,
-    lifeDeck: Math.max(0, STARTING_LIFE_DECK - STARTING_LIVES * 2),
   };
 }
 
@@ -113,14 +111,10 @@ function drawMagic(state: GameState, playerId: PlayerID, amount = 1): GameState 
   };
 }
 
-function drawLife(state: GameState, playerId: PlayerID, amount = 1): GameState {
-  if (amount <= 0 || state.lifeDeck <= 0) return state;
-  const drawCount = Math.min(amount, state.lifeDeck);
+function gainLife(state: GameState, playerId: PlayerID, amount = 1): GameState {
+  if (amount <= 0) return state;
   const player = state.players[playerId];
-  return {
-    ...setPlayer(state, { ...player, lives: player.lives + drawCount }),
-    lifeDeck: state.lifeDeck - drawCount,
-  };
+  return setPlayer(state, { ...player, lives: player.lives + amount });
 }
 
 function discardRandomMagic(state: GameState, playerId: PlayerID, amount = 1): GameState {
@@ -202,10 +196,8 @@ function applyLifeLoss(state: GameState, playerId: PlayerID, amount: number, sou
 }
 
 function drawDefaultCard(state: GameState, playerId: PlayerID): GameState {
-  const player = state.players[playerId];
-  if (player.lives <= 2 && state.lifeDeck > 0) return drawLife(state, playerId, 1);
   if (state.magicDeck.length > 0) return drawMagic(state, playerId, 1);
-  return drawLife(state, playerId, 1);
+  return state;
 }
 
 function uniquePositions(positions: Position[]): Position[] {
@@ -473,7 +465,7 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
     if (ai.hand.length > 0) return discardRandomMagic(state, 'ai', 1);
     return applyLifeLoss(state, 'ai', 1, 'character');
   },
-  healer: (state) => drawLife(state, state.currentTurn, 1),
+  healer: (state) => gainLife(state, state.currentTurn, 1),
   goblin: (state) => {
     let next = state;
     const ai = next.players.ai;
@@ -560,7 +552,7 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
 
     return setPlayer(setPlayer(next, nextHuman), nextAi);
   },
-  regeneration: (state) => drawLife(state, state.currentTurn, 1),
+  regeneration: (state) => gainLife(state, state.currentTurn, 1),
   burn: (state) => applyLifeLoss(state, state.currentTurn, 1, 'spell'),
   fireball: (state) => applyLifeLoss(state, opp(state.currentTurn), 1, 'spell'),
   electrocution: (state) => {
@@ -778,12 +770,13 @@ export function resolveGoblinChoice(state: GameState, choice: 'lose_life' | 'dis
 
 export function resolveChoiceOfSoul(state: GameState, choice: 'draw_magic' | 'gain_life'): GameState {
   if (state.pendingChoice?.type !== 'choice_of_soul') return state;
+  const playerId = state.pendingChoice.playerId;
   let next: GameState = { ...state, pendingChoice: null };
 
   if (choice === 'draw_magic') {
-    next = drawMagic(next, 'human', 1);
+    next = drawMagic(next, playerId, 1);
   } else {
-    next = drawLife(next, 'human', 1);
+    next = gainLife(next, playerId, 1);
   }
 
   return completeResolution(next);

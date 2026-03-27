@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import type { GameState, MagicCard, Position } from '@/lib/types';
 import {
   createInitialState,
@@ -15,12 +15,11 @@ import {
   skipMagicAfter,
   skipMagicBefore,
 } from '@/lib/gameLogic';
-import { aiDecideFlip, aiDecideMagicAfter, aiDecideMagicBefore, aiPickManipulationTarget } from '@/lib/ai';
+
 
 type Action =
   | { type: 'NEW_GAME' }
   | { type: 'SET_STATE'; state: GameState }
-  | { type: 'AI_THINKING'; thinking: boolean }
   | { type: 'SELECT_MAGIC'; card: MagicCard | null }
   | { type: 'FLIP_CARD'; position: Position }
   | { type: 'PLAY_MAGIC'; card: MagicCard }
@@ -39,15 +38,12 @@ function reducer(state: GameState, action: Action): GameState {
       return createInitialState();
     case 'SET_STATE':
       return action.state;
-    case 'AI_THINKING':
-      return { ...state, aiThinking: action.thinking };
     case 'SELECT_MAGIC':
       return { ...state, selectedMagicCard: action.card };
+    // Guards removed: gameLogic validates turns; UI prevents wrong-turn actions
     case 'FLIP_CARD':
-      if (state.currentTurn !== 'human') return state;
       return flipCard(state, action.position);
     case 'PLAY_MAGIC':
-      if (state.currentTurn !== 'human') return state;
       return playMagicCard(state, action.card);
     case 'SKIP_BEFORE':
       return skipMagicBefore(state);
@@ -84,76 +80,48 @@ export interface GameActions {
   discardAnyChoose: (choice: 'lose_life' | 'discard_magic') => void;
 }
 
-export function useGameState(): { state: GameState; actions: GameActions } {
-  const [state, dispatch] = useReducer(reducer, undefined, createInitialState);
-  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const aiRunningRef = useRef(false);
+export interface GameStateConfig {
+  /** Initial state for multiplayer (loaded from Supabase) */
+  initialState?: GameState;
+  /** Latest external state from Supabase realtime */
+  externalState?: GameState | null;
+  /** Called after each local state change so multiplayer can push to Supabase */
+  onStateChange?: (state: GameState) => Promise<void>;
+}
 
-  const runAiTurn = useCallback((currentState: GameState) => {
-    if (currentState.currentTurn !== 'ai' || currentState.phase === 'game_over') return;
-    if (currentState.pendingChoice) return;
-    if (aiRunningRef.current) return;
+export function useGameState(config: GameStateConfig = {}): { state: GameState; actions: GameActions } {
+  const { initialState, externalState, onStateChange } = config;
 
-    aiRunningRef.current = true;
+  const [state, dispatch] = useReducer(
+    reducer,
+    undefined,
+    () => initialState ?? createInitialState(),
+  );
 
-    if (currentState.phase === 'play_magic_before') {
-      aiTimerRef.current = setTimeout(() => {
-        let next = currentState;
-        const decision = aiDecideMagicBefore(next);
-        if (decision.playMagic && decision.magicCard) next = playMagicCard(next, decision.magicCard);
-        next = skipMagicBefore(next);
-        aiRunningRef.current = false;
-        dispatch({ type: 'SET_STATE', state: { ...next, aiThinking: false } });
-      }, 600);
-      return;
-    }
+  const prevStateRef = useRef(state);
+  // Flag to suppress push when the state change came from external (Supabase) update
+  const applyingExternalRef = useRef(false);
 
-    if (currentState.phase === 'flip_card' || currentState.phase === 'arrow_follow') {
-      aiTimerRef.current = setTimeout(() => {
-        const pos = aiDecideFlip(currentState);
-        let next = flipCard(currentState, pos);
-
-        if (next.pendingChoice?.type === 'manipulation' && next.pendingChoice.playerId === 'ai') {
-          next = resolveManipulation(next, aiPickManipulationTarget(next));
-        }
-
-        aiRunningRef.current = false;
-        dispatch({ type: 'SET_STATE', state: { ...next, aiThinking: false } });
-      }, 900);
-      return;
-    }
-
-    if (currentState.phase === 'play_magic_after') {
-      aiTimerRef.current = setTimeout(() => {
-        let next = currentState;
-        const decision = aiDecideMagicAfter(next);
-        if (decision.playMagic && decision.magicCard) next = playMagicCard(next, decision.magicCard);
-
-        if (next.pendingChoice?.type === 'manipulation' && next.pendingChoice.playerId === 'ai') {
-          next = resolveManipulation(next, aiPickManipulationTarget(next));
-        }
-
-        next = skipMagicAfter(next);
-        aiRunningRef.current = false;
-        dispatch({ type: 'SET_STATE', state: { ...next, aiThinking: false } });
-      }, 550);
-      return;
-    }
-
-    aiRunningRef.current = false;
-  }, []);
-
+  // ── Sync external state from Supabase ────────────────────────────────────
   useEffect(() => {
-    if (state.currentTurn === 'ai' && state.phase !== 'game_over' && !state.pendingChoice) {
-      runAiTurn(state);
+    if (!externalState) return;
+    applyingExternalRef.current = true;
+    dispatch({ type: 'SET_STATE', state: externalState });
+  }, [externalState]);
+
+  // ── Push local state changes to Supabase ─────────────────────────────────
+  useEffect(() => {
+    if (!onStateChange) return;
+    if (state === prevStateRef.current) return;
+    prevStateRef.current = state;
+
+    if (applyingExternalRef.current) {
+      applyingExternalRef.current = false;
+      return;
     }
 
-    return () => {
-      if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
-      aiRunningRef.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.currentTurn, state.phase, state.turnNumber, state.pendingChoice, runAiTurn]);
+    onStateChange(state);
+  }, [onStateChange, state]);
 
   const actions: GameActions = {
     newGame: () => dispatch({ type: 'NEW_GAME' }),

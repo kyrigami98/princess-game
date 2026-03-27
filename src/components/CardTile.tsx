@@ -79,11 +79,11 @@ export default function CardTile({
         </div>
       </button>
 
-      {hoverRect && (
+      {hoverRect && canSee && (
         <CardPreview
           card={cardData}
           anchorRect={hoverRect}
-          showBack={!canSee}
+          showBack={false}
           previewSize="xl"
         />
       )}

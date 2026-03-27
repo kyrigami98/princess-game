@@ -5,6 +5,10 @@
   --foreground: #f1f5f9;
 }
 
+.game-bg {
+  background: radial-gradient(ellipse at 50% 40%, #160d2e 0%, #0b0818 50%, #070510 100%);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

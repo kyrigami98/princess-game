@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { MagicCard, Player, Position } from "@/lib/types";
+import type { MagicCard, Player, PlayerID, Position } from "@/lib/types";
 import { useGameState } from "@/hooks/useGameState";
 import GameBoard from "@/components/GameBoard";
 import MagicHand from "@/components/MagicHand";
@@ -13,10 +13,12 @@ import DeckZone from "@/components/DeckZone";
 import DiscardZone from "@/components/DiscardZone";
 import CardBack from "@/components/CardBack";
 
+// ─── AI hand (face-down fanned cards) ────────────────────────────────────────
+
 function AiHand({ count }: { count: number }) {
   const total = Math.max(count, 1);
   return (
-    <div className="flex items-end justify-center px-2">
+    <div className="flex items-end justify-center px-2 h-full">
       {Array.from({ length: total }).map((_, index) => {
         const angle =
           total > 1
@@ -26,7 +28,7 @@ function AiHand({ count }: { count: number }) {
         return (
           <div
             key={index}
-            className="w-9 h-14 sm:w-10 sm:h-14 shrink-0"
+            className="w-8 h-12 shrink-0"
             style={{
               zIndex: total - index,
               marginLeft: index > 0 ? "-8px" : 0,
@@ -42,9 +44,9 @@ function AiHand({ count }: { count: number }) {
   );
 }
 
-// Dot positions for a 3×3 grid: 1 = dot present
+// ─── Life dice ───────────────────────────────────────────────────────────────
+
 const DICE_DOTS: Record<number, boolean[]> = {
-  //      tl     tc     tr     ml     mc     mr     bl     bc     br
   0: [false, false, false, false, false, false, false, false, false],
   1: [false, false, false, false, true, false, false, false, false],
   2: [false, false, true, false, false, false, true, false, false],
@@ -58,15 +60,17 @@ function Die({ value }: { value: number }) {
   const dots = DICE_DOTS[value] ?? DICE_DOTS[6];
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <div className="w-8 h-8 rounded-md bg-slate-800 border-2 border-slate-600 shadow-inner grid grid-cols-3 grid-rows-3 p-1 gap-0.5">
+      <div className="w-9 h-9 rounded-lg bg-linear-to-br from-rose-950 to-red-900 border-2 border-rose-700/80 shadow-inner shadow-black/40 grid grid-cols-3 grid-rows-3 p-1.5 gap-0.5">
         {dots.map((on, i) => (
           <div
             key={i}
-            className={`rounded-full ${on ? "bg-rose-400 shadow-sm shadow-rose-500/60" : ""}`}
+            className={`rounded-full ${on ? "bg-rose-300 shadow-sm shadow-rose-400/80" : ""}`}
           />
         ))}
       </div>
-      <span className="text-[9px] font-bold text-rose-400">{value}</span>
+      <span className="text-[9px] font-bold text-rose-400 tabular-nums">
+        {value}
+      </span>
     </div>
   );
 }
@@ -87,35 +91,14 @@ function LifeDice({ lives }: { lives: number }) {
   );
 }
 
-function SideDecks({
-  magicCount,
-  lifeCount,
-}: {
-  magicCount: number;
-  lifeCount: number;
-}) {
-  return (
-    <div className="flex flex-row gap-1.5 shrink-0">
-      <DeckZone label="Vie" count={lifeCount} icon="❤️" tone="rose" strip />
-      <DeckZone
-        label="Magie"
-        count={magicCount}
-        icon="🃏"
-        tone="indigo"
-        strip
-      />
-    </div>
-  );
-}
+// ─── Player strip ─────────────────────────────────────────────────────────────
 
-/** Compact horizontal strip for one player side */
 function PlayerStrip({
   player,
   isActive,
   isAI,
   discardLabel,
   magicDeckCount,
-  lifeDeckCount,
   mirrored,
   children,
 }: {
@@ -124,17 +107,16 @@ function PlayerStrip({
   isAI?: boolean;
   discardLabel: string;
   magicDeckCount: number;
-  lifeDeckCount: number;
   mirrored?: boolean;
-  children: React.ReactNode; // hand zone
+  children: React.ReactNode;
 }) {
   const statusBadge = (
     <div
       className={[
         "flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-xl border shrink-0 min-w-12",
         isActive
-          ? "border-amber-500/60 bg-amber-950/40 shadow shadow-amber-500/20"
-          : "border-slate-700/40 bg-slate-900/20",
+          ? "border-amber-500/50 bg-amber-950/30 shadow shadow-amber-500/20"
+          : "border-white/5 bg-white/3",
       ].join(" ")}
     >
       <span className="text-base leading-none">{isAI ? "🤖" : "👑"}</span>
@@ -159,21 +141,22 @@ function PlayerStrip({
   );
 
   const sideInfo = (
-    <div className="flex items-center gap-1.5 shrink-0">
+    <div className="flex items-center gap-2 shrink-0">
       <LifeDice lives={player.lives} />
-      <DiscardZone label={discardLabel} cards={player.discardPile} strip />
-      <SideDecks magicCount={magicDeckCount} lifeCount={lifeDeckCount} />
+      <DiscardZone label={discardLabel} cards={player.discardPile} />
+      <DeckZone label="Magie" count={magicDeckCount} icon="🃏" tone="indigo" />
     </div>
   );
 
   return (
     <section
       className={[
-        "flex items-center gap-2 px-2 py-1.5 rounded-2xl border overflow-hidden",
+        "flex items-center gap-2 px-3 py-2 rounded-2xl border overflow-hidden transition-all duration-300",
         isActive
-          ? "border-amber-500/30 bg-slate-900/60"
-          : "border-slate-800/60 bg-slate-900/30",
+          ? "border-amber-500/25 bg-white/5 shadow-lg shadow-amber-500/5"
+          : "border-white/5 bg-white/3",
       ].join(" ")}
+      style={{ backdropFilter: "blur(8px)" }}
     >
       {mirrored ? (
         <>
@@ -192,33 +175,61 @@ function PlayerStrip({
   );
 }
 
-export default function Game() {
-  const { state, actions } = useGameState();
+// ─── Main game component ──────────────────────────────────────────────────────
+
+export interface MultiplayerProps {
+  gameCode: string;
+  localRole: PlayerID;
+  localPlayerId: string;
+  pushState: (state: import("@/lib/types").GameState) => Promise<void>;
+  isOpponentConnected: boolean;
+}
+
+interface GameProps {
+  multiplayerProps?: MultiplayerProps;
+  /** Seed state for the reducer (first load from Supabase) */
+  initialState?: import("@/lib/types").GameState;
+  /** Latest remote state from Supabase realtime — synced on every opponent move */
+  externalState?: import("@/lib/types").GameState | null;
+}
+
+export default function Game({
+  multiplayerProps,
+  initialState,
+  externalState,
+}: GameProps = {}) {
+  const localRole = multiplayerProps?.localRole ?? "human";
+
+  const { state, actions } = useGameState({
+    initialState,
+    externalState,
+    onStateChange: multiplayerProps?.pushState,
+  });
+
   const [showLog, setShowLog] = useState(false);
 
   const pendingChoice = state.pendingChoice;
-  const isHumanTurn = state.currentTurn === "human";
+  const isLocalTurn = state.currentTurn === localRole;
 
-  const isHumanPending = useMemo(
-    () => pendingChoice?.playerId === "human",
-    [pendingChoice],
+  const isLocalPending = useMemo(
+    () => pendingChoice?.playerId === localRole,
+    [pendingChoice, localRole],
   );
 
   const handleCardClick = useCallback(
     (pos: Position) => {
-      if (pendingChoice?.type === "fairy_peek" && isHumanPending) {
+      if (!isLocalTurn) return;
+      if (pendingChoice?.type === "fairy_peek" && isLocalPending) {
         actions.fairyPeek(pos);
         return;
       }
-
-      if (pendingChoice?.type === "manipulation" && isHumanPending) {
+      if (pendingChoice?.type === "manipulation" && isLocalPending) {
         actions.manipulationTarget(pos);
         return;
       }
-
       actions.flipCard(pos);
     },
-    [actions, pendingChoice, isHumanPending],
+    [actions, pendingChoice, isLocalPending, isLocalTurn],
   );
 
   const handleMagicSelect = useCallback(
@@ -233,59 +244,67 @@ export default function Game() {
     [actions],
   );
 
-  const flippedCount = state.grid.flat().filter((card) => card.flipped).length;
+  const flippedCount = state.grid.flat().filter((c) => c.flipped).length;
   const totalCards = state.grid.flat().length;
+  const progressPct = (flippedCount / totalCards) * 100;
 
   const disableHand =
     state.phase === "game_over" ||
-    !isHumanTurn ||
-    !!(pendingChoice && isHumanPending);
+    !isLocalTurn ||
+    !!(pendingChoice && isLocalPending);
 
   return (
-    <div className="h-screen bg-slate-950 text-white overflow-hidden flex flex-col">
-      <main className="flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)_160px] gap-2 p-2 sm:p-3 overflow-hidden">
+    <div className="h-screen game-bg text-white overflow-hidden flex flex-col">
+      <main className="flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)_auto] gap-1.5 p-1.5 overflow-hidden">
+        {/* ── AI strip ─────────────────────────────────────────────────── */}
         <PlayerStrip
           player={state.players.ai}
           isActive={state.currentTurn === "ai"}
           isAI
           discardLabel="Défausse IA"
           magicDeckCount={state.magicDeck.length}
-          lifeDeckCount={state.lifeDeck}
           mirrored
         >
           <AiHand count={state.players.ai.hand.length} />
         </PlayerStrip>
 
-        <section className="min-h-0 rounded-2xl border border-slate-700 bg-linear-to-b from-slate-900/80 via-slate-900/55 to-slate-950/80 p-2 sm:p-3 flex flex-col overflow-hidden shadow-2xl shadow-black/20">
-          <div className="flex items-center gap-2 mb-2 shrink-0">
-            <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                style={{ width: `${(flippedCount / totalCards) * 100}%` }}
-              />
-            </div>
-            <span className="text-xs text-slate-400 shrink-0">
-              {flippedCount}/{totalCards}
-            </span>
-            <button
-              onClick={() => setShowLog((value) => !value)}
-              className={`text-xs px-2 py-0.5 rounded-lg border transition-colors ${
-                showLog
-                  ? "border-indigo-500 text-indigo-300 bg-indigo-950/50"
-                  : "border-slate-700 text-slate-400 hover:text-white"
-              }`}
-            >
-              📜
-            </button>
-            <button
-              onClick={actions.newGame}
-              className="text-xs px-2 py-0.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
-            >
-              ↺
-            </button>
+        {/* ── Board ────────────────────────────────────────────────────── */}
+        <section
+          className="relative min-h-0 rounded-2xl flex flex-col overflow-hidden"
+          style={{
+            background:
+              "linear-gradient(to bottom, rgba(13,10,26,0.92), rgba(9,8,18,0.95))",
+            boxShadow:
+              "0 0 0 1px rgba(180,130,50,0.25), 0 0 0 3px rgba(99,51,180,0.18), 0 0 60px rgba(80,40,160,0.12), inset 0 0 80px rgba(60,20,120,0.08)",
+          }}
+        >
+          {/* Corner ornaments */}
+          <span className="absolute top-2 left-2.5 text-amber-500/25 text-base select-none pointer-events-none z-10">
+            ✦
+          </span>
+          <span className="absolute top-2 right-2.5 text-amber-500/25 text-base select-none pointer-events-none z-10">
+            ✦
+          </span>
+          <span className="absolute bottom-2 left-2.5 text-amber-500/25 text-base select-none pointer-events-none z-10">
+            ✦
+          </span>
+          <span className="absolute bottom-2 right-2.5 text-amber-500/25 text-base select-none pointer-events-none z-10">
+            ✦
+          </span>
+
+          {/* Inner radial glow */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full bg-violet-900/12 blur-3xl" />
           </div>
 
-          <div className="shrink-0 mb-2">
+          {/* Progress line */}
+          <div
+            className="absolute top-0 left-0 h-0.5 bg-linear-to-r from-amber-600/60 via-violet-500/60 to-amber-600/60 transition-all duration-500 rounded-t-2xl"
+            style={{ width: `${progressPct}%` }}
+          />
+
+          {/* Board header */}
+          <div className="relative z-10 flex items-center gap-2 px-4 pt-3 pb-1 shrink-0">
             <PhaseIndicator
               phase={state.phase}
               currentTurn={state.currentTurn}
@@ -299,43 +318,74 @@ export default function Game() {
               onSkipBefore={actions.skipMagicBefore}
               onSkipAfter={actions.skipMagicAfter}
             />
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-500 tabular-nums">
+                {flippedCount}/{totalCards}
+              </span>
+              <button
+                onClick={() => setShowLog((v) => !v)}
+                className={`text-xs px-2 py-0.5 rounded-lg border transition-colors ${
+                  showLog
+                    ? "border-violet-500/60 text-violet-300 bg-violet-950/40"
+                    : "border-white/10 text-slate-500 hover:text-white hover:border-white/20"
+                }`}
+              >
+                📜
+              </button>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${
+                  multiplayerProps?.isOpponentConnected
+                    ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-400"
+                    : "border-amber-500/40 bg-amber-950/30 text-amber-400"
+                }`}
+              >
+                {multiplayerProps?.isOpponentConnected
+                  ? "● Connecté"
+                  : "◌ En attente…"}
+              </span>
+            </div>
           </div>
 
-          <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden">
+          {/* Grid */}
+          <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center p-2 overflow-hidden">
             <div className="h-full max-h-full aspect-square w-auto max-w-full">
-              <GameBoard state={state} onCardClick={handleCardClick} />
+              <GameBoard
+                state={state}
+                onCardClick={handleCardClick}
+                viewerID={localRole}
+              />
             </div>
           </div>
         </section>
 
+        {/* ── Human strip ──────────────────────────────────────────────── */}
         <PlayerStrip
-          player={state.players.human}
-          isActive={state.currentTurn === "human"}
+          player={state.players[localRole]}
+          isActive={isLocalTurn}
           discardLabel="Votre défausse"
           magicDeckCount={state.magicDeck.length}
-          lifeDeckCount={state.lifeDeck}
         >
           <div className="w-full h-full flex flex-col gap-1 min-h-0">
-            <div className="flex items-center gap-2 px-1 text-xs text-slate-400 shrink-0">
-              <span className="font-semibold uppercase tracking-wider text-[10px]">
+            <div className="flex items-center gap-2 px-1 shrink-0">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Votre main
               </span>
-              {isHumanTurn &&
+              {isLocalTurn &&
                 state.phase === "play_magic_before" &&
                 !pendingChoice && (
                   <button
                     onClick={actions.skipMagicBefore}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white font-bold transition-colors"
+                    className="text-xs px-3 py-1 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white font-bold transition-colors shadow shadow-indigo-900/40"
                   >
                     Retourner une carte
                   </button>
                 )}
-              {isHumanTurn &&
+              {isLocalTurn &&
                 state.phase === "play_magic_after" &&
                 !pendingChoice && (
                   <button
                     onClick={actions.skipMagicAfter}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold transition-colors"
+                    className="text-xs px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold transition-colors"
                   >
                     Finir le tour
                   </button>
@@ -343,7 +393,7 @@ export default function Game() {
             </div>
             <div className="flex-1 min-h-0">
               <MagicHand
-                hand={state.players.human.hand}
+                hand={state.players[localRole].hand}
                 phase={state.phase}
                 selectedCard={state.selectedMagicCard}
                 onSelect={handleMagicSelect}
@@ -354,8 +404,9 @@ export default function Game() {
         </PlayerStrip>
       </main>
 
+      {/* ── Log sidebar ──────────────────────────────────────────────────── */}
       {showLog && (
-        <aside className="fixed right-3 bottom-3 z-30 w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-800 bg-slate-950/95 p-3 shadow-2xl">
+        <aside className="fixed right-3 bottom-3 z-30 w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-white/10 bg-[#0a0818]/95 p-3 shadow-2xl backdrop-blur-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
             Journal — Tour {state.turnNumber}
           </div>
@@ -363,14 +414,15 @@ export default function Game() {
         </aside>
       )}
 
-      {isHumanPending &&
+      {/* ── Choice modals ────────────────────────────────────────────────── */}
+      {isLocalPending &&
         pendingChoice &&
         (pendingChoice.type === "goblin" ||
           pendingChoice.type === "choice_of_soul" ||
           pendingChoice.type === "discard_any_card") && (
           <ChoiceModal
             type={pendingChoice.type}
-            hasMagicCard={state.players.human.hand.length > 0}
+            hasMagicCard={state.players[localRole].hand.length > 0}
             onChoose={(choice) => {
               if (pendingChoice.type === "choice_of_soul") {
                 actions.choiceOfSoulChoose(
@@ -378,19 +430,18 @@ export default function Game() {
                 );
                 return;
               }
-
               if (pendingChoice.type === "goblin") {
                 actions.goblinChoose(choice as "lose_life" | "discard_magic");
                 return;
               }
-
               actions.discardAnyChoose(choice as "lose_life" | "discard_magic");
             }}
           />
         )}
 
+      {/* ── Game over ────────────────────────────────────────────────────── */}
       {state.phase === "game_over" && state.winner && (
-        <GameOverScreen winner={state.winner} onRestart={actions.newGame} />
+        <GameOverScreen winner={state.winner} />
       )}
     </div>
   );

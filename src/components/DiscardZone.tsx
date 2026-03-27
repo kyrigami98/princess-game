@@ -3,24 +3,16 @@
 import { useState } from "react";
 import type { MagicCard } from "@/lib/types";
 import CardFace, { type CardData } from "./CardFace";
-import CardBack from "./CardBack";
-import CardPreview from "./CardPreview";
+import DiscardModal from "./DiscardModal";
 
 interface Props {
   label: string;
   cards: MagicCard[];
-  compact?: boolean;
-  strip?: boolean;
 }
 
-export default function DiscardZone({
-  label,
-  cards,
-  compact = false,
-  strip = false,
-}: Props) {
+export default function DiscardZone({ label, cards }: Props) {
+  const [modalOpen, setModalOpen] = useState(false);
   const topCard = cards.length > 0 ? cards[cards.length - 1] : null;
-  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
 
   const cardData: CardData | null = topCard
     ? {
@@ -33,65 +25,51 @@ export default function DiscardZone({
       }
     : null;
 
-  if (strip) {
-    return (
-      <div
-        className="flex flex-col items-center gap-0.5 shrink-0"
-        onMouseEnter={(e) =>
-          cardData && setHoverRect(e.currentTarget.getBoundingClientRect())
-        }
-        onMouseLeave={() => setHoverRect(null)}
-      >
-        <span className="text-[8px] text-slate-500 uppercase tracking-wider font-semibold">
-          {label}
-        </span>
-        <div className="flex items-center gap-1 rounded-lg border border-slate-700/70 bg-slate-900/70 px-1.5 py-1">
-          <span className="text-sm leading-none">🗑️</span>
-          <span className="text-xs font-bold rounded px-1 bg-slate-800/90 border border-slate-600 text-slate-200">
-            {cards.length}
-          </span>
-        </div>
-        {hoverRect && cardData && (
-          <CardPreview
-            card={cardData}
-            anchorRect={hoverRect}
-            previewSize="xl"
-          />
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div
-      className={`rounded-xl border border-slate-700/70 bg-slate-900/70 ${compact ? "p-2" : "p-3"}`}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+    <>
+      <button
+        className="flex flex-col items-center gap-1 shrink-0 group cursor-pointer disabled:cursor-default"
+        onClick={() => cards.length > 0 && setModalOpen(true)}
+        disabled={cards.length === 0}
+        title={cards.length > 0 ? `Voir la défausse (${cards.length})` : undefined}
+      >
+        <span className="text-[8px] text-slate-500 uppercase tracking-wider font-semibold group-hover:text-slate-300 transition-colors">
           {label}
         </span>
-        <span className="text-[11px] rounded-md border border-slate-600 px-2 py-0.5 font-bold text-slate-200 bg-slate-800/90">
-          {cards.length}
-        </span>
-      </div>
 
-      <div
-        className={compact ? "w-10 h-14" : "w-14 h-20"}
-        onMouseEnter={(e) =>
-          setHoverRect(e.currentTarget.getBoundingClientRect())
-        }
-        onMouseLeave={() => setHoverRect(null)}
-        onTouchStart={(e) => {
-          setHoverRect(e.currentTarget.getBoundingClientRect());
-          setTimeout(() => setHoverRect(null), 900);
-        }}
-      >
-        {cardData ? <CardFace card={cardData} size="sm" /> : <CardBack />}
-      </div>
+        {/* Pile visuelle */}
+        <div className="relative w-9 h-13">
+          {/* Layers de fond (effet pile) */}
+          <div className="absolute inset-0 rounded-md border border-slate-600/50 bg-slate-800/60 translate-x-1 translate-y-1" />
+          <div className="absolute inset-0 rounded-md border border-slate-600/70 bg-slate-800/75 translate-x-0.5 translate-y-0.5" />
 
-      {hoverRect && cardData && (
-        <CardPreview card={cardData} anchorRect={hoverRect} previewSize="xl" />
+          {/* Top card */}
+          <div className="absolute inset-0 rounded-md overflow-hidden border border-slate-500/60 shadow-lg group-hover:brightness-110 transition-all">
+            {cardData ? (
+              <CardFace card={cardData} size="sm" />
+            ) : (
+              <div className="w-full h-full bg-slate-800/80 flex items-center justify-center">
+                <span className="text-slate-600 text-lg">🗑️</span>
+              </div>
+            )}
+          </div>
+
+          {/* Count badge */}
+          {cards.length > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 z-10 min-w-4 h-4 flex items-center justify-center rounded-full bg-slate-700 border border-slate-500 text-[9px] font-bold text-slate-200 px-1">
+              {cards.length}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {modalOpen && (
+        <DiscardModal
+          label={label}
+          cards={cards}
+          onClose={() => setModalOpen(false)}
+        />
       )}
-    </div>
+    </>
   );
 }

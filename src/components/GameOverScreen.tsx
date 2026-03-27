@@ -4,7 +4,7 @@ import type { PlayerID } from '@/lib/types';
 
 interface Props {
   winner: PlayerID;
-  onRestart: () => void;
+  onRestart?: () => void;
 }
 
 export default function GameOverScreen({ winner, onRestart }: Props) {
@@ -24,12 +24,14 @@ export default function GameOverScreen({ winner, onRestart }: Props) {
             ? "Vous avez triomphé de l'IA. La Princesse est saine et sauve !"
             : "L'IA a remporté la partie. La mort a eu raison de vous..."}
         </p>
-        <button
-          onClick={onRestart}
-          className="px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-lg transition-colors shadow-lg"
-        >
-          Rejouer
-        </button>
+        {onRestart && (
+          <button
+            onClick={onRestart}
+            className="px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-lg transition-colors shadow-lg"
+          >
+            Rejouer
+          </button>
+        )}
       </div>
     </div>
   );

@@ -180,5 +180,4 @@ export interface GameState {
   aiThinking: boolean;
   log: LogEntry[];
   magicDeck: MagicCard[];
-  lifeDeck: number;
 }
