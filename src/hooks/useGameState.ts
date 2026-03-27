@@ -8,6 +8,7 @@ import {
   flipCard,
   playMagicCard,
   resolveChoiceOfSoul,
+  resolveCounterWindow,
   resolveDiscardAnyChoice,
   resolveFairyPeek,
   resolveGoblinChoice,
@@ -30,6 +31,7 @@ type Action =
   | { type: 'RESOLVE_FAIRY'; position: Position }
   | { type: 'RESOLVE_MANIPULATION'; position: Position }
   | { type: 'RESOLVE_DISCARD_ANY'; choice: 'lose_life' | 'discard_magic' }
+  | { type: 'RESOLVE_COUNTER'; counterCardId?: string }
   | { type: 'FORCE_END_TURN' };
 
 function reducer(state: GameState, action: Action): GameState {
@@ -59,6 +61,8 @@ function reducer(state: GameState, action: Action): GameState {
       return resolveManipulation(state, action.position);
     case 'RESOLVE_DISCARD_ANY':
       return resolveDiscardAnyChoice(state, action.choice);
+    case 'RESOLVE_COUNTER':
+      return resolveCounterWindow(state, action.counterCardId);
     case 'FORCE_END_TURN':
       return endTurn(state);
     default:
@@ -78,6 +82,7 @@ export interface GameActions {
   fairyPeek: (position: Position) => void;
   manipulationTarget: (position: Position) => void;
   discardAnyChoose: (choice: 'lose_life' | 'discard_magic') => void;
+  resolveCounter: (counterCardId?: string) => void;
 }
 
 export interface GameStateConfig {
@@ -135,6 +140,7 @@ export function useGameState(config: GameStateConfig = {}): { state: GameState; 
     fairyPeek: (position) => dispatch({ type: 'RESOLVE_FAIRY', position }),
     manipulationTarget: (position) => dispatch({ type: 'RESOLVE_MANIPULATION', position }),
     discardAnyChoose: (choice) => dispatch({ type: 'RESOLVE_DISCARD_ANY', choice }),
+    resolveCounter: (counterCardId) => dispatch({ type: 'RESOLVE_COUNTER', counterCardId }),
   };
 
   return { state, actions };

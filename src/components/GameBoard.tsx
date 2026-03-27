@@ -10,7 +10,11 @@ interface Props {
   viewerID?: PlayerID;
 }
 
-export default function GameBoard({ state, onCardClick, viewerID = "human" }: Props) {
+export default function GameBoard({
+  state,
+  onCardClick,
+  viewerID = "player1",
+}: Props) {
   const { grid, currentTurn, pendingChoice } = state;
 
   const isLocalTurn = currentTurn === viewerID;

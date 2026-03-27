@@ -28,6 +28,16 @@ export function getOrCreatePlayerId(): string {
   return id;
 }
 
+export function getOrCreatePlayerName(): string {
+  const key = 'princess_player_name';
+  if (typeof window === 'undefined') return 'Joueur';
+  return localStorage.getItem(key) ?? '';
+}
+
+export function savePlayerName(name: string): void {
+  if (typeof window !== 'undefined') localStorage.setItem('princess_player_name', name);
+}
+
 export function generateGameCode(): string {
   return Math.random().toString(36).slice(2, 6).toUpperCase();
 }

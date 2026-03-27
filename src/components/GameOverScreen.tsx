@@ -1,23 +1,26 @@
-'use client';
+"use client";
 
-import type { PlayerID } from '@/lib/types';
+import type { PlayerID } from "@/lib/types";
 
 interface Props {
   winner: PlayerID;
+  localRole?: PlayerID;
   onRestart?: () => void;
 }
 
-export default function GameOverScreen({ winner, onRestart }: Props) {
-  const isHumanWinner = winner === 'human';
+export default function GameOverScreen({
+  winner,
+  localRole = "player1",
+  onRestart,
+}: Props) {
+  const isHumanWinner = winner === localRole;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="bg-slate-900 border-2 border-amber-500 rounded-2xl p-8 sm:p-12 text-center max-w-sm mx-4 shadow-2xl">
-        <div className="text-6xl mb-4">
-          {isHumanWinner ? '👑' : '⚔️'}
-        </div>
+        <div className="text-6xl mb-4">{isHumanWinner ? "👑" : "⚔️"}</div>
         <h2 className="text-3xl font-bold text-white mb-2">
-          {isHumanWinner ? 'Victoire !' : 'Défaite...'}
+          {isHumanWinner ? "Victoire !" : "Défaite..."}
         </h2>
         <p className="text-slate-400 mb-6">
           {isHumanWinner

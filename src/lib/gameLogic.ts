@@ -19,7 +19,7 @@ function uid(): string {
 }
 
 function opp(playerId: PlayerID): PlayerID {
-  return playerId === 'human' ? 'ai' : 'human';
+  return playerId === 'player1' ? 'player2' : 'player1';
 }
 
 function addLog(
@@ -65,15 +65,15 @@ function makePlayer(id: PlayerID, name: string, hand: MagicCard[]): Player {
   };
 }
 
-export function createInitialState(): GameState {
+export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joueur 2'): GameState {
   const magicDeck = buildMagicDeck();
   return {
     grid: buildGrid(),
     players: {
-      human: makePlayer('human', 'Vous', magicDeck.splice(0, STARTING_HAND)),
-      ai: makePlayer('ai', 'IA', magicDeck.splice(0, STARTING_HAND)),
+      player1: makePlayer('player1', player1Name, magicDeck.splice(0, STARTING_HAND)),
+      player2: makePlayer('player2', player2Name, magicDeck.splice(0, STARTING_HAND)),
     },
-    currentTurn: 'human',
+    currentTurn: 'player1',
     phase: 'play_magic_before',
     turnNumber: 1,
     arrowConstraint: null,
@@ -83,10 +83,10 @@ export function createInitialState(): GameState {
     forcedFlipTargets: null,
     forcedFlipFor: null,
     pendingChoice: null,
+    pendingCounter: null,
     selectedMagicCard: null,
     lastFlippedCard: null,
     winner: null,
-    aiThinking: false,
     log: [
       {
         id: uid(),
@@ -363,8 +363,8 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
     return addLog(next, '🧜 Sirène : vous donnez 1 vie à votre adversaire.', 'warning', 'system');
   },
   scientist: (state) => {
-    let next = drawDefaultCard(state, 'human');
-    next = drawDefaultCard(next, 'ai');
+    let next = drawDefaultCard(state, 'player1');
+    next = drawDefaultCard(next, 'player2');
     return addLog(next, '🔬 Scientifique : chaque joueur pioche 1 carte.', 'success', 'system');
   },
   king: (state, card) => {
@@ -407,9 +407,9 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   princess_ambitious: (state, card, filter) => GRID_EFFECTS.princess_strict(state, card, filter),
   worker: (state) => addLog(drawDefaultCard(state, state.currentTurn), '🛠️ Ouvrier : vous piochez 1 carte.', 'success', 'system'),
   ogre: (state) => {
-    let next = applyLifeLoss(state, 'human', 1, 'character');
+    let next = applyLifeLoss(state, 'player1', 1, 'character');
     if (next.phase === 'game_over') return next;
-    next = applyLifeLoss(next, 'ai', 1, 'character');
+    next = applyLifeLoss(next, 'player2', 1, 'character');
     return next;
   },
   minotaur: (state) => {
@@ -419,11 +419,11 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
     return addLog(next, '🐂 Minotaure : adversaire protégé contre sa prochaine perte de 1 vie.', 'warning', 'system');
   },
   merchant_lugajo: (state) => {
-    let next = drawMagic(state, 'human', 1);
-    next = drawMagic(next, 'ai', 1);
-    next = applyLifeLoss(next, 'human', 1, 'character');
+    let next = drawMagic(state, 'player1', 1);
+    next = drawMagic(next, 'player2', 1);
+    next = applyLifeLoss(next, 'player1', 1, 'character');
     if (next.phase === 'game_over') return next;
-    next = applyLifeLoss(next, 'ai', 1, 'character');
+    next = applyLifeLoss(next, 'player2', 1, 'character');
     return next;
   },
   merchant_lorino: (state) => drawMagic(discardRandomMagic(state, state.currentTurn, 1), state.currentTurn, 1),
@@ -441,7 +441,7 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
       magicDeck: shuffle(rest),
     };
   },
-  engineer: (state) => discardRandomMagic(discardRandomMagic(state, 'human', 1), 'ai', 1),
+  engineer: (state) => discardRandomMagic(discardRandomMagic(state, 'player1', 1), 'player2', 1),
   ifrit: (state) => {
     const next = applyLifeLoss(state, state.currentTurn, 1, 'character');
     if (next.phase === 'game_over') return next;
@@ -455,29 +455,16 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   },
   warrior: (state) => {
     const target = opp(state.currentTurn);
-    if (target === 'human') {
-      return {
-        ...state,
-        pendingChoice: { type: 'discard_any_card', playerId: 'human', amount: 1 },
-      };
-    }
-    const ai = state.players.ai;
-    if (ai.hand.length > 0) return discardRandomMagic(state, 'ai', 1);
-    return applyLifeLoss(state, 'ai', 1, 'character');
+    return {
+      ...state,
+      pendingChoice: { type: 'discard_any_card', playerId: target, amount: 1 },
+    };
   },
   healer: (state) => gainLife(state, state.currentTurn, 1),
   goblin: (state) => {
-    let next = state;
-    const ai = next.players.ai;
-    if (ai.hand.length > 0) next = discardRandomMagic(next, 'ai', 1);
-    else next = applyLifeLoss(next, 'ai', 1, 'character');
-
-    if (next.phase === 'game_over') return next;
-
-    return {
-      ...next,
-      pendingChoice: { type: 'goblin', playerId: 'human' },
-    };
+    // Les deux joueurs doivent défausser 1 carte — on commence par l'adversaire
+    const opponent = opp(state.currentTurn);
+    return { ...state, pendingChoice: { type: 'goblin', playerId: opponent } };
   },
   giant: (state) => {
     const actor = state.players[state.currentTurn];
@@ -501,11 +488,7 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   druid: (state) => {
     const target = opp(state.currentTurn);
     const next = discardRandomMagic(state, target, 1);
-    if (target === 'human') {
-      return { ...next, pendingChoice: { type: 'discard_any_card', playerId: 'human', amount: 1 } };
-    }
-    if (next.players.ai.hand.length > 0) return discardRandomMagic(next, 'ai', 1);
-    return applyLifeLoss(next, 'ai', 1, 'character');
+    return { ...next, pendingChoice: { type: 'discard_any_card', playerId: target, amount: 1 } };
   },
   demon_pfozet: (state, card) => revealTargetsWithFilter(state, card, 'negative'),
   demon_josu: (state) => {
@@ -531,26 +514,26 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   angel: (state, card) => revealTargetsWithFilter(state, card, 'positive'),
   friend: (state) => {
     let next = state;
-    if (next.players.human.hand.length === 0) next = drawMagic(next, 'human', 1);
-    if (next.players.ai.hand.length === 0) next = drawMagic(next, 'ai', 1);
+    if (next.players.player1.hand.length === 0) next = drawMagic(next, 'player1', 1);
+    if (next.players.player2.hand.length === 0) next = drawMagic(next, 'player2', 1);
 
-    const humanHand = [...next.players.human.hand];
-    const aiHand = [...next.players.ai.hand];
-    if (humanHand.length === 0 || aiHand.length === 0) return next;
+    const p1Hand = [...next.players.player1.hand];
+    const p2Hand = [...next.players.player2.hand];
+    if (p1Hand.length === 0 || p2Hand.length === 0) return next;
 
-    const humanCard = humanHand[Math.floor(Math.random() * humanHand.length)];
-    const aiCard = aiHand[Math.floor(Math.random() * aiHand.length)];
+    const p1Card = p1Hand[Math.floor(Math.random() * p1Hand.length)];
+    const p2Card = p2Hand[Math.floor(Math.random() * p2Hand.length)];
 
-    const nextHuman = {
-      ...next.players.human,
-      hand: [...humanHand.filter((card) => card.id !== humanCard.id), aiCard],
+    const nextP1 = {
+      ...next.players.player1,
+      hand: [...p1Hand.filter((card) => card.id !== p1Card.id), p2Card],
     };
-    const nextAi = {
-      ...next.players.ai,
-      hand: [...aiHand.filter((card) => card.id !== aiCard.id), humanCard],
+    const nextP2 = {
+      ...next.players.player2,
+      hand: [...p2Hand.filter((card) => card.id !== p2Card.id), p1Card],
     };
 
-    return setPlayer(setPlayer(next, nextHuman), nextAi);
+    return setPlayer(setPlayer(next, nextP1), nextP2);
   },
   regeneration: (state) => gainLife(state, state.currentTurn, 1),
   burn: (state) => applyLifeLoss(state, state.currentTurn, 1, 'spell'),
@@ -630,15 +613,10 @@ const MAGIC_EFFECTS: Record<MagicCard['effect'], (state: GameState, card: MagicC
       'system',
     );
   },
-  choice_of_soul: (state) => {
-    if (state.currentTurn === 'human') {
-      return {
-        ...state,
-        pendingChoice: { type: 'choice_of_soul', playerId: 'human' },
-      };
-    }
-    return drawDefaultCard(state, 'ai');
-  },
+  choice_of_soul: (state) => ({
+    ...state,
+    pendingChoice: { type: 'choice_of_soul', playerId: state.currentTurn },
+  }),
   concentration: (state) => withSkipNextTurn(state, state.currentTurn, '🧘 Concentration : vous passerez votre prochain tour.'),
   counter_magic: (state) => {
     const actor = state.players[state.currentTurn];
@@ -648,23 +626,10 @@ const MAGIC_EFFECTS: Record<MagicCard['effect'], (state: GameState, card: MagicC
     const actor = state.players[state.currentTurn];
     return setPlayer(state, { ...actor, immuneCharacterEffect: true });
   },
-  manipulation: (state) => {
-    if (state.currentTurn === 'human') {
-      return {
-        ...state,
-        pendingChoice: { type: 'manipulation', playerId: 'human' },
-      };
-    }
-
-    const available = state.grid.flat().filter((card) => !card.flipped).map((card) => card.position);
-    if (available.length === 0) return state;
-    const choice = available[Math.floor(Math.random() * available.length)];
-    return {
-      ...state,
-      forcedFlipTargets: [choice],
-      forcedFlipFor: opp(state.currentTurn),
-    };
-  },
+  manipulation: (state) => ({
+    ...state,
+    pendingChoice: { type: 'manipulation', playerId: state.currentTurn },
+  }),
   restriction: (state) => withSkipNextTurn(state, opp(state.currentTurn), '⛓️ Restriction : adversaire passera son prochain tour.'),
 };
 
@@ -681,10 +646,16 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
   if (card.timing === 'before' && state.phase !== 'play_magic_before') return state;
   if (card.timing === 'after' && state.phase !== 'play_magic_after') return state;
 
+  // Contre-magie ne peut être jouée que via la fenêtre de contre
+  if (card.effect === 'counter_magic') {
+    return addLog(state, '🌀 Contre-magie : activez-la en réponse à une magie adverse.', 'warning', actorId);
+  }
+
   if (card.timing !== 'counter' && actor.playedMagicThisTurn) {
     return addLog(state, 'Une seule carte de magie (hors contre) est autorisée par tour.', 'warning', actorId);
   }
 
+  // Retirer la carte de la main et marquer le tour
   let next = setPlayer(state, {
     ...actor,
     hand: actor.hand.filter((c) => c.id !== card.id),
@@ -692,12 +663,27 @@ export function playMagicCard(state: GameState, card: MagicCard): GameState {
     playedMagicThisTurn: card.timing === 'counter' ? actor.playedMagicThisTurn : true,
   });
 
-  if (card.timing !== 'counter' && opponent.counterMagicActive) {
+  // Vérification proactive (contre-magie active précédemment)
+  if (card.timing !== 'counter' && next.players[opponentId].counterMagicActive) {
     next = setPlayer(next, { ...next.players[opponentId], counterMagicActive: false });
-    return addLog(next, `🌀 Contre-magie : ${card.name} est annulée.`, 'warning', 'system');
+    next = addLog(next, `🌀 Contre-magie : ${card.name} est annulée.`, 'warning', 'system');
+    return next;
   }
 
-  if (card.effect !== 'counter_magic' && card.effect !== 'immunity' && card.effect !== 'barrier') {
+  // Fenêtre de contre réactive : si l'adversaire a une contre-magie en main
+  if (card.timing !== 'counter' && next.players[opponentId].hand.some((c) => c.effect === 'counter_magic')) {
+    next = addLog(next, `${next.players[actorId].name} joue ${card.name}.`, 'info', actorId);
+    return {
+      ...next,
+      pendingCounter: {
+        forPlayer: opponentId,
+        description: `${next.players[actorId].name} joue ${card.name}.`,
+        pendingMagicCard: card,
+      },
+    };
+  }
+
+  if (card.effect !== 'immunity' && card.effect !== 'barrier') {
     const ignored = shouldIgnoreMagicEffect(next, opponentId);
     if (ignored) return ignored;
   }
@@ -735,6 +721,7 @@ export function endTurn(state: GameState): GameState {
     turnNumber: state.turnNumber + 1,
     selectedMagicCard: null,
     pendingChoice: null,
+    pendingCounter: null,
     lastFlippedCard: null,
   };
 
@@ -756,13 +743,22 @@ export function endTurn(state: GameState): GameState {
 
 export function resolveGoblinChoice(state: GameState, choice: 'lose_life' | 'discard_magic'): GameState {
   if (state.pendingChoice?.type !== 'goblin') return state;
+  const playerId = state.pendingChoice.playerId;
+  const currentTurn = state.currentTurn;
   let next: GameState = { ...state, pendingChoice: null };
 
-  if (choice === 'discard_magic' && next.players.human.hand.length > 0) {
-    next = discardRandomMagic(next, 'human', 1);
-    next = addLog(next, '👺 Vous défaussez 1 carte de magie.', 'info', 'human');
+  if (choice === 'discard_magic' && next.players[playerId].hand.length > 0) {
+    next = discardRandomMagic(next, playerId, 1);
+    next = addLog(next, `👺 ${next.players[playerId].name} défausse 1 carte de magie.`, 'info', playerId);
   } else {
-    next = applyLifeLoss(next, 'human', 1, 'character');
+    next = applyLifeLoss(next, playerId, 1, 'character');
+  }
+
+  if (next.phase === 'game_over') return next;
+
+  // Si c'était l'adversaire, maintenant c'est au joueur actif
+  if (playerId === opp(currentTurn)) {
+    return { ...next, pendingChoice: { type: 'goblin', playerId: currentTurn } };
   }
 
   return completeResolution(next);
@@ -824,4 +820,50 @@ export function resolveDiscardAnyChoice(state: GameState, choice: 'lose_life' | 
   }
 
   return completeResolution(next);
+}
+
+/**
+ * Résoudre la fenêtre de contre-magie.
+ * @param counterCardId  Identifiant de la carte Contre-magie jouée, ou undefined pour « laisser passer »
+ */
+export function resolveCounterWindow(state: GameState, counterCardId?: string): GameState {
+  if (!state.pendingCounter) return state;
+
+  const { pendingMagicCard, forPlayer } = state.pendingCounter;
+  const actorId = opp(forPlayer); // le joueur qui a joué la carte de magie
+  let next: GameState = { ...state, pendingCounter: null };
+
+  if (counterCardId) {
+    // L'adversaire joue sa carte Contre-magie
+    const counterPlayer = next.players[forPlayer];
+    const counterCard = counterPlayer.hand.find((c) => c.id === counterCardId);
+    if (!counterCard) return next; // sécurité
+
+    next = setPlayer(next, {
+      ...counterPlayer,
+      hand: counterPlayer.hand.filter((c) => c.id !== counterCardId),
+      discardPile: [...counterPlayer.discardPile, counterCard],
+    });
+    next = addLog(
+      next,
+      `🌀 ${counterCard.name} : l'effet de ${pendingMagicCard.name} est annulé.`,
+      'warning',
+      'system',
+    );
+    return next;
+  }
+
+  // Adversaire passe → appliquer l'effet de la carte de magie
+  if (
+    pendingMagicCard.effect !== 'counter_magic' &&
+    pendingMagicCard.effect !== 'immunity' &&
+    pendingMagicCard.effect !== 'barrier'
+  ) {
+    const ignored = shouldIgnoreMagicEffect(next, forPlayer);
+    if (ignored) return ignored;
+  }
+
+  const handler = MAGIC_EFFECTS[pendingMagicCard.effect];
+  if (!handler) return next;
+  return handler(next, pendingMagicCard);
 }

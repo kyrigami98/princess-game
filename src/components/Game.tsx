@@ -11,6 +11,7 @@ import ChoiceModal from "@/components/ChoiceModal";
 import DeckZone from "@/components/DeckZone";
 import DiscardZone from "@/components/DiscardZone";
 import CardBack from "@/components/CardBack";
+import CounterModal from "@/components/CounterModal";
 
 // ─── AI hand (face-down fanned cards) ────────────────────────────────────────
 
@@ -197,7 +198,9 @@ export default function Game({
   initialState,
   externalState,
 }: GameProps = {}) {
-  const localRole = multiplayerProps?.localRole ?? "human";
+  const localRole = multiplayerProps?.localRole ?? "player1";
+  const opponentRole: PlayerID =
+    localRole === "player1" ? "player2" : "player1";
 
   const { state, actions } = useGameState({
     initialState,
@@ -209,6 +212,7 @@ export default function Game({
 
   const pendingChoice = state.pendingChoice;
   const isLocalTurn = state.currentTurn === localRole;
+  const isLocalCounterWindow = state.pendingCounter?.forPlayer === localRole;
 
   const isLocalPending = useMemo(
     () => pendingChoice?.playerId === localRole,
@@ -218,6 +222,7 @@ export default function Game({
   const handleCardClick = useCallback(
     (pos: Position) => {
       if (!isLocalTurn) return;
+      if (state.pendingCounter) return; // blocage pendant fenêtre de contre
       if (pendingChoice?.type === "fairy_peek" && isLocalPending) {
         actions.fairyPeek(pos);
         return;
@@ -250,21 +255,22 @@ export default function Game({
   const disableHand =
     state.phase === "game_over" ||
     !isLocalTurn ||
-    !!(pendingChoice && isLocalPending);
+    !!(pendingChoice && isLocalPending) ||
+    !!state.pendingCounter;
 
   return (
     <div className="h-screen game-bg text-white overflow-hidden flex flex-col">
       <main className="flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)_auto] gap-1.5 p-1.5 overflow-hidden">
         {/* ── Opponent strip ───────────────────────────────────────────── */}
         <PlayerStrip
-          player={state.players.ai}
-          isActive={state.currentTurn === "ai"}
+          player={state.players[opponentRole]}
+          isActive={state.currentTurn === opponentRole}
           isAI
           discardLabel="Défausse adversaire"
           magicDeckCount={state.magicDeck.length}
           mirrored
         >
-          <AiHand count={state.players.ai.hand.length} />
+          <AiHand count={state.players[opponentRole].hand.length} />
         </PlayerStrip>
 
         {/* ── Board ────────────────────────────────────────────────────── */}
@@ -307,7 +313,10 @@ export default function Game({
             <PhaseIndicator
               phase={state.phase}
               currentTurn={state.currentTurn}
-              aiThinking={state.aiThinking}
+              isLocalTurn={isLocalTurn}
+              waitingForCounter={
+                !!state.pendingCounter && !isLocalCounterWindow
+              }
               arrowActive={
                 !!state.arrowConstraint || !!state.queenForcedQueue?.length
               }
@@ -371,7 +380,8 @@ export default function Game({
               </span>
               {isLocalTurn &&
                 state.phase === "play_magic_before" &&
-                !pendingChoice && (
+                !pendingChoice &&
+                !state.pendingCounter && (
                   <button
                     onClick={actions.skipMagicBefore}
                     className="text-xs px-3 py-1 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white font-bold transition-colors shadow shadow-indigo-900/40"
@@ -381,7 +391,8 @@ export default function Game({
                 )}
               {isLocalTurn &&
                 state.phase === "play_magic_after" &&
-                !pendingChoice && (
+                !pendingChoice &&
+                !state.pendingCounter && (
                   <button
                     onClick={actions.skipMagicAfter}
                     className="text-xs px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold transition-colors"
@@ -412,7 +423,16 @@ export default function Game({
           <GameLog entries={state.log} />
         </aside>
       )}
-
+      {/* ── Fenêtre de contre-magie (joueur local) ────────────────────────────────── */}
+      {isLocalCounterWindow && state.pendingCounter && (
+        <CounterModal
+          description={state.pendingCounter.description}
+          counterCards={state.players[localRole].hand.filter(
+            (c) => c.effect === "counter_magic",
+          )}
+          onResolve={(counterCardId) => actions.resolveCounter(counterCardId)}
+        />
+      )}
       {/* ── Choice modals ────────────────────────────────────────────────── */}
       {isLocalPending &&
         pendingChoice &&
@@ -440,23 +460,28 @@ export default function Game({
 
       {/* ── Game over banner ───────────────────────────────────────── */}
       {state.phase === "game_over" && state.winner && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-sm"
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-sm"
           style={{
-            background: state.winner === "human"
-              ? "rgba(120,53,15,0.92)"
-              : "rgba(30,10,60,0.92)",
-            borderColor: state.winner === "human"
-              ? "rgba(251,191,36,0.6)"
-              : "rgba(139,92,246,0.5)",
+            background:
+              state.winner === localRole
+                ? "rgba(120,53,15,0.92)"
+                : "rgba(30,10,60,0.92)",
+            borderColor:
+              state.winner === localRole
+                ? "rgba(251,191,36,0.6)"
+                : "rgba(139,92,246,0.5)",
           }}
         >
-          <span className="text-2xl">{state.winner === "human" ? "👑" : "⚔️"}</span>
+          <span className="text-2xl">
+            {state.winner === localRole ? "👑" : "⚔️"}
+          </span>
           <div>
             <p className="text-white font-bold text-sm leading-tight">
-              {state.winner === "human" ? "Victoire !" : "Défaite..."}
+              {state.winner === localRole ? "Victoire !" : "Défaite..."}
             </p>
             <p className="text-white/60 text-xs">
-              {state.winner === "human"
+              {state.winner === localRole
                 ? "La Princesse est saine et sauve !"
                 : "Votre adversaire a remporté la partie."}
             </p>

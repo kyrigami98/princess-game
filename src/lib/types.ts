@@ -1,4 +1,4 @@
-export type PlayerID = 'human' | 'ai';
+export type PlayerID = 'player1' | 'player2';
 
 export type ArrowDirection =
   | 'top-left'
@@ -139,6 +139,15 @@ export interface PendingChoice {
   amount?: number;
 }
 
+export interface PendingCounter {
+  /** Le joueur qui peut jouer une carte contre */
+  forPlayer: PlayerID;
+  /** Description de l'effet entrant (pour l'affichage) */
+  description: string;
+  /** La carte de magie dont l'effet est suspendu */
+  pendingMagicCard: MagicCard;
+}
+
 export type GamePhase =
   | 'play_magic_before'
   | 'flip_card'
@@ -177,7 +186,7 @@ export interface GameState {
   selectedMagicCard: MagicCard | null;
   lastFlippedCard: GridCard | null;
   winner: PlayerID | null;
-  aiThinking: boolean;
+  pendingCounter: PendingCounter | null;
   log: LogEntry[];
   magicDeck: MagicCard[];
 }

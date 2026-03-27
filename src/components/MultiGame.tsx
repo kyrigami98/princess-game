@@ -9,6 +9,7 @@ interface Props {
   gameCode: string;
   localRole: PlayerID;
   localPlayerId: string;
+  playerName: string;
   onBack: () => void;
 }
 
@@ -16,6 +17,7 @@ export default function MultiGame({
   gameCode,
   localRole,
   localPlayerId,
+  playerName,
   onBack,
 }: Props) {
   const {

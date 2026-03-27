@@ -5,7 +5,8 @@ import type { GamePhase, PlayerID, PendingChoiceType } from "@/lib/types";
 interface Props {
   phase: GamePhase;
   currentTurn: PlayerID;
-  aiThinking: boolean;
+  isLocalTurn: boolean;
+  waitingForCounter: boolean;
   arrowActive: boolean;
   forcedFlip: boolean;
   selectedMagicName: string | null;
@@ -17,7 +18,8 @@ interface Props {
 export default function PhaseIndicator({
   phase,
   currentTurn,
-  aiThinking,
+  isLocalTurn,
+  waitingForCounter,
   arrowActive,
   forcedFlip,
   selectedMagicName,
@@ -25,10 +27,18 @@ export default function PhaseIndicator({
 }: Props) {
   if (phase === "game_over") return null;
 
-  if (currentTurn === "ai" || aiThinking) {
+  if (!isLocalTurn) {
     return (
       <span className="text-xs text-slate-400 animate-pulse">
         ⚔️ L&apos;adversaire joue…
+      </span>
+    );
+  }
+
+  if (waitingForCounter) {
+    return (
+      <span className="text-xs text-violet-300 font-semibold animate-pulse">
+        🌀 En attente de la réponse adverse…
       </span>
     );
   }
