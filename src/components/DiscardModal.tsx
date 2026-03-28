@@ -113,6 +113,7 @@ export default function DiscardModal({ label, cards, onClose }: Props) {
           card={hoveredCard.card}
           anchorRect={hoveredCard.rect}
           previewSize="xl"
+          preferredSide="left"
         />
       )}
     </>

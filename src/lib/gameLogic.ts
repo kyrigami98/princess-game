@@ -84,6 +84,8 @@ export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joue
     pendingChoice: null,
     pendingCounter: null,
     coinFlipResult: null,
+    lastSkippedTurn: null,
+    lastCounterEvent: null,
     selectedMagicCard: null,
     lastFlippedCard: null,
     winner: null,
@@ -97,6 +99,7 @@ export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joue
       },
     ],
     magicDeck,
+    stateVersion: 0,
   };
 }
 
@@ -757,13 +760,18 @@ export function endTurn(state: GameState): GameState {
     pendingChoice: null,
     pendingCounter: null,
     coinFlipResult: null,
+    lastSkippedTurn: null,
+    lastCounterEvent: null,
     lastFlippedCard: null,
   };
 
   if (next.players[nextTurn].skipNextTurn) {
+    const skippedPlayer = nextTurn;
+    const skippedTurnNumber = next.turnNumber;
     next = setPlayer(next, { ...next.players[nextTurn], skipNextTurn: false });
     next = addLog(next, `${next.players[nextTurn].name} passe son tour.`, 'warning', 'system');
-    return endTurn(next);
+    const afterSkip = endTurn(next);
+    return { ...afterSkip, lastSkippedTurn: { player: skippedPlayer, turnNumber: skippedTurnNumber } };
   }
 
   if (next.magicDeck.length > 0) {
@@ -854,6 +862,26 @@ export function resolveDiscardAnyChoice(state: GameState, choice: 'lose_life' | 
   return completeResolution(next);
 }
 
+/** Le joueur choisit explicitement quelle carte défausser. */
+export function resolveDiscardSpecific(state: GameState, cardId: string): GameState {
+  if (state.pendingChoice?.type !== 'discard_any_card') return state;
+
+  const targetId = state.pendingChoice.playerId;
+  const player = state.players[targetId];
+  const card = player.hand.find((c) => c.id === cardId);
+  if (!card) return state;
+
+  let next: GameState = { ...state, pendingChoice: null };
+  next = setPlayer(next, {
+    ...player,
+    hand: player.hand.filter((c) => c.id !== cardId),
+    discardPile: [...player.discardPile, card],
+  });
+  next = addLog(next, `${next.players[targetId].name} défausse ${card.name}.`, 'info', targetId);
+
+  return completeResolution(next);
+}
+
 /**
  * Résoudre la fenêtre de contre-magie.
  * @param counterCardId  Identifiant de la carte Contre-magie jouée, ou undefined pour « laisser passer »
@@ -874,6 +902,24 @@ export function resolveCounterWindow(state: GameState, counterCardId?: string): 
       hand: counterPlayer.hand.filter((c) => c.id !== counterCardId),
       discardPile: [...counterPlayer.discardPile, counterCard],
     });
+
+    const blockedEffectName =
+      state.pendingCounter.kind === 'barrier'
+        ? 'Perte de vie'
+        : state.pendingCounter.kind === 'magic'
+          ? state.pendingCounter.pendingMagicCard.name
+          : state.pendingCounter.pendingGridCard.label;
+    next = {
+      ...next,
+      lastCounterEvent: {
+        counterCardName: counterCard.name,
+        counterCardEmoji: counterCard.emoji,
+        counterCardEffect: counterCard.effect,
+        blockedEffectName,
+        counterPlayerName: counterPlayer.name,
+        turnNumber: state.turnNumber,
+      },
+    };
 
     if (state.pendingCounter.kind === 'barrier') {
       next = addLog(next, `🛡️ ${counterPlayer.name} utilise ${counterCard.name} : perte de vie annulée.`, 'success', 'system');

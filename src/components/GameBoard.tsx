@@ -2,18 +2,21 @@
 
 import type { GameState, PlayerID, Position } from "@/lib/types";
 import CardTile from "./CardTile";
+import type { CardData } from "./CardFace";
 import { getAllowedFlipTargets } from "@/lib/gameLogic";
 
 interface Props {
   state: GameState;
   onCardClick: (pos: Position) => void;
   viewerID?: PlayerID;
+  onCardHover?: (card: CardData | null) => void;
 }
 
 export default function GameBoard({
   state,
   onCardClick,
   viewerID = "player1",
+  onCardHover,
 }: Props) {
   const { grid, currentTurn, pendingChoice } = state;
 
@@ -78,6 +81,7 @@ export default function GameBoard({
             isPeekTarget={isPeekTarget(card.position)}
             isManipulationTarget={isManipulationTarget(card.position)}
             onClick={onCardClick}
+            onHover={onCardHover}
           />
         )),
       )}

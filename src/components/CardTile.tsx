@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { GridCard, Position, PlayerID } from "../lib/types";
-import CardFace from "./CardFace";
+import CardFace, { type CardData } from "./CardFace";
 import CardBack from "./CardBack";
 import CardPreview from "./CardPreview";
 
@@ -14,6 +14,7 @@ interface Props {
   isPeekTarget: boolean;
   isManipulationTarget: boolean;
   onClick: (pos: Position) => void;
+  onHover?: (card: CardData | null) => void;
 }
 
 export default function CardTile({
@@ -24,8 +25,10 @@ export default function CardTile({
   isPeekTarget,
   isManipulationTarget,
   onClick,
+  onHover,
 }: Props) {
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const [isTouchHover, setIsTouchHover] = useState(false);
   const canSee = card.flipped || (card.peeked && card.peekedBy === viewerID);
   const clickable =
     isSelectable || isArrowTarget || isPeekTarget || isManipulationTarget;
@@ -52,12 +55,18 @@ export default function CardTile({
         onClick={() => clickable && onClick(card.position)}
         onMouseEnter={(e) => {
           setHoverRect(e.currentTarget.getBoundingClientRect());
+          setIsTouchHover(false);
+          if (canSee) onHover?.(cardData);
         }}
         onTouchStart={(e) => {
           setHoverRect(e.currentTarget.getBoundingClientRect());
+          setIsTouchHover(true);
           setTimeout(() => setHoverRect(null), 900);
         }}
-        onMouseLeave={() => setHoverRect(null)}
+        onMouseLeave={() => {
+          setHoverRect(null);
+          onHover?.(null);
+        }}
         className={[
           "relative w-full rounded-lg transition-all duration-200",
           clickable
@@ -79,7 +88,7 @@ export default function CardTile({
         </div>
       </button>
 
-      {hoverRect && canSee && (
+      {hoverRect && canSee && (isTouchHover || !onHover) && (
         <CardPreview
           card={cardData}
           anchorRect={hoverRect}

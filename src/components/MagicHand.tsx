@@ -11,6 +11,7 @@ interface Props {
   selectedCard: MagicCard | null;
   onSelect: (card: MagicCard | null) => void;
   disabled: boolean;
+  onCardHover?: (card: CardData | null) => void;
 }
 
 function canPlayTiming(timing: MagicTiming, phase: GamePhase): boolean {
@@ -24,13 +25,16 @@ function MagicCardButton({
   playable,
   isSelected,
   onSelect,
+  onHover,
 }: {
   card: MagicCard;
   playable: boolean;
   isSelected: boolean;
   onSelect: (c: MagicCard | null) => void;
+  onHover?: (data: CardData | null) => void;
 }) {
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const [isTouchHover, setIsTouchHover] = useState(false);
 
   const cardData: CardData = {
     id: card.id,
@@ -45,14 +49,20 @@ function MagicCardButton({
     <>
       <button
         onClick={() => playable && onSelect(isSelected ? null : card)}
-        onMouseEnter={(e) =>
-          setHoverRect(e.currentTarget.getBoundingClientRect())
-        }
+        onMouseEnter={(e) => {
+          setHoverRect(e.currentTarget.getBoundingClientRect());
+          setIsTouchHover(false);
+          onHover?.(cardData);
+        }}
         onTouchStart={(e) => {
           setHoverRect(e.currentTarget.getBoundingClientRect());
+          setIsTouchHover(true);
           setTimeout(() => setHoverRect(null), 900);
         }}
-        onMouseLeave={() => setHoverRect(null)}
+        onMouseLeave={() => {
+          setHoverRect(null);
+          onHover?.(null);
+        }}
         className={[
           "relative flex-none transition-all duration-200",
           "w-24 h-36",
@@ -70,7 +80,7 @@ function MagicCardButton({
         <CardFace card={cardData} size="sm" />
       </button>
 
-      {hoverRect && (
+      {hoverRect && (isTouchHover || !onHover) && (
         <CardPreview card={cardData} anchorRect={hoverRect} previewSize="xl" />
       )}
     </>
@@ -83,6 +93,7 @@ export default function MagicHand({
   selectedCard,
   onSelect,
   disabled,
+  onCardHover,
 }: Props) {
   if (hand.length === 0) {
     return null;
@@ -93,8 +104,8 @@ export default function MagicHand({
   const maxAngle = Math.min(totalCards * 1.5, 8); // max ±8°
 
   return (
-    <div className="flex items-end justify-center w-full overflow-visible px-4">
-      <div className="md:hidden w-full overflow-x-auto">
+    <div className="flex items-end justify-center w-full overflow-visible px-4 pointer-events-none">
+      <div className="md:hidden w-full overflow-x-auto pointer-events-auto">
         <div className="flex items-end gap-2 min-w-max px-2 snap-x snap-mandatory">
           {hand.map((card) => {
             const playable = !disabled && canPlayTiming(card.timing, phase);
@@ -106,6 +117,7 @@ export default function MagicHand({
                   playable={playable}
                   isSelected={isSelected}
                   onSelect={onSelect}
+                  onHover={onCardHover}
                 />
               </div>
             );
@@ -114,7 +126,7 @@ export default function MagicHand({
       </div>
 
       <div
-        className="hidden md:flex relative items-end justify-center w-full"
+        className="hidden md:flex relative items-end justify-center pointer-events-auto"
         style={{ gap: "-4px" }}
       >
         {hand.map((card, i) => {
@@ -147,6 +159,7 @@ export default function MagicHand({
                 playable={playable}
                 isSelected={isSelected}
                 onSelect={onSelect}
+                onHover={onCardHover}
               />
             </div>
           );

@@ -10,15 +10,15 @@ interface Props {
   anchorRect: DOMRect;
   showBack?: boolean;
   previewSize?: "md" | "xl";
-  preferredSide?: "top" | "right";
+  preferredSide?: "top" | "right" | "left" | "auto";
 }
 
 export default function CardPreview({
   card,
-  anchorRect: _anchorRect,
+  anchorRect,
   showBack = false,
   previewSize = "md",
-  preferredSide: _preferredSide = "top",
+  preferredSide = "auto",
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const W = previewSize === "xl" ? 420 : 280;
@@ -26,14 +26,36 @@ export default function CardPreview({
 
   if (typeof document === "undefined") return null;
 
+  const GAP = 12;
+  const vpW = window.innerWidth;
+  const vpH = window.innerHeight;
+
+  // Vertical: vertically centered on the anchor, clamped to viewport
+  let top = anchorRect.top + anchorRect.height / 2 - H / 2;
+  top = Math.max(8, Math.min(top, vpH - H - 8));
+
+  // Horizontal: choose side based on preferredSide or available space
+  const spaceLeft = anchorRect.left - GAP;
+  const spaceRight = vpW - anchorRect.right - GAP;
+  let left: number;
+
+  if (preferredSide === "left" || (preferredSide === "auto" && spaceLeft >= W)) {
+    left = anchorRect.left - W - GAP;
+  } else if (preferredSide === "right" || spaceRight >= W) {
+    left = anchorRect.right + GAP;
+  } else {
+    // fallback: whichever side has more room
+    left = spaceLeft >= spaceRight ? anchorRect.left - W - GAP : anchorRect.right + GAP;
+  }
+  left = Math.max(8, Math.min(left, vpW - W - 8));
+
   return createPortal(
     <div
       ref={ref}
       className="fixed z-50 pointer-events-none"
       style={{
-        left: "50%",
-        top: "50%",
-        transform: "translate(-50%, -50%)",
+        left,
+        top,
         width: W,
       }}
     >

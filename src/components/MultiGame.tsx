@@ -3,7 +3,6 @@
 import type { PlayerID } from "@/lib/types";
 import { useMultiplayer } from "@/hooks/useMultiplayer";
 import Game from "./Game";
-import { useGameState } from "@/hooks/useGameState";
 
 interface Props {
   gameCode: string;
@@ -24,14 +23,15 @@ export default function MultiGame({
     state: remoteState,
     isOpponentConnected,
     pushState,
-    error,
+    fatalError,
+    networkWarning,
   } = useMultiplayer(gameCode, localRole, localPlayerId);
 
-  if (error) {
+  if (fatalError) {
     return (
       <div className="min-h-screen game-bg flex items-center justify-center p-4">
         <div className="text-center">
-          <p className="text-rose-400 text-lg mb-4">{error}</p>
+          <p className="text-rose-400 text-lg mb-4">{fatalError}</p>
           <button
             onClick={onBack}
             className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors"
@@ -54,17 +54,26 @@ export default function MultiGame({
   }
 
   return (
-    <Game
-      multiplayerProps={{
-        gameCode,
-        localRole,
-        localPlayerId,
-        pushState,
-        isOpponentConnected,
-      }}
-      initialState={remoteState}
-      externalState={remoteState}
-      onBack={onBack}
-    />
+    <>
+      {/* Non-fatal network warning toast — game stays alive */}
+      {networkWarning && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-60 flex items-center gap-2 px-4 py-2 rounded-xl border border-amber-500/40 bg-amber-950/90 text-amber-300 text-xs font-semibold shadow-xl backdrop-blur-sm pointer-events-none">
+          <span className="animate-pulse">⚠</span>
+          {networkWarning}
+        </div>
+      )}
+      <Game
+        multiplayerProps={{
+          gameCode,
+          localRole,
+          localPlayerId,
+          pushState,
+          isOpponentConnected,
+        }}
+        initialState={remoteState}
+        externalState={remoteState}
+        onBack={onBack}
+      />
+    </>
   );
 }

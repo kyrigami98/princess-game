@@ -166,6 +166,9 @@ export interface LogEntry {
 }
 
 export interface GameState {
+  /** Monotonically increasing counter incremented on every state transition.
+   *  Used to reject stale Realtime updates that arrive out of order. */
+  stateVersion: number;
   grid: GridCard[][];
   players: Record<PlayerID, Player>;
   currentTurn: PlayerID;
@@ -183,6 +186,15 @@ export interface GameState {
   winner: PlayerID | null;
   pendingCounter: PendingCounter | null;
   coinFlipResult: { victim: PlayerID; turnNumber: number } | null;
+  lastSkippedTurn: { player: PlayerID; turnNumber: number } | null;
+  lastCounterEvent: {
+    counterCardName: string;
+    counterCardEmoji: string;
+    counterCardEffect: string;
+    blockedEffectName: string;
+    counterPlayerName: string;
+    turnNumber: number;
+  } | null;
   log: LogEntry[];
   magicDeck: MagicCard[];
 }
