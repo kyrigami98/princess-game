@@ -36,7 +36,7 @@ export default function DiscardModal({ label, cards, onClose }: Props) {
           onClick={onClose}
         >
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+          <div className="absolute inset-0" />
 
           {/* Modal */}
           <div

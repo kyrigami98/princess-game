@@ -63,6 +63,11 @@ export default function GameBoard({
     );
   }
 
+  const markerMap = new Map(
+    state.activeEffectMarkers.map((m) => [m.cardId, m.playerId]),
+  );
+  const lastFlippedId = state.lastFlippedCard?.id ?? null;
+
   return (
     <div
       className="grid gap-2"
@@ -80,8 +85,10 @@ export default function GameBoard({
             isArrowTarget={isArrowTarget(card.position)}
             isPeekTarget={isPeekTarget(card.position)}
             isManipulationTarget={isManipulationTarget(card.position)}
+            isLastFlipped={card.id === lastFlippedId}
             onClick={onCardClick}
             onHover={onCardHover}
+            marker={markerMap.get(card.id) ?? null}
           />
         )),
       )}

@@ -10,9 +10,14 @@ import {
   resolveChoiceOfSoul,
   resolveCounterWindow,
   resolveDiscardAnyChoice,
+  resolveDiscardChoose,
   resolveDiscardSpecific,
+  resolveDruidMagicChoice,
+  resolveProtectionChoice,
   resolveFairyPeek,
   resolveGoblinChoice,
+  resolveGoblinDiscardSpecific,
+  resolveGravediggerChoice,
   resolveManipulation,
   skipMagicAfter,
   skipMagicBefore,
@@ -33,6 +38,11 @@ type Action =
   | { type: 'RESOLVE_MANIPULATION'; position: Position }
   | { type: 'RESOLVE_DISCARD_ANY'; choice: 'lose_life' | 'discard_magic' }
   | { type: 'RESOLVE_DISCARD_SPECIFIC'; cardId: string }
+  | { type: 'RESOLVE_DISCARD_CHOOSE'; cardId: string }
+  | { type: 'RESOLVE_GRAVEDIGGER'; cardId: string }
+  | { type: 'RESOLVE_GOBLIN_DISCARD'; cardId: string }
+  | { type: 'RESOLVE_DRUID_MAGIC'; cardId: string }
+  | { type: 'RESOLVE_PROTECTION'; choice: { kind: 'flag'; flag: string } | { kind: 'barrier' } | { kind: 'none' } }
   | { type: 'RESOLVE_COUNTER'; counterCardId?: string }
   | { type: 'FORCE_END_TURN' };
 
@@ -45,6 +55,8 @@ function reducer(state: GameState, action: Action): GameState {
     case 'NEW_GAME':
       return createInitialState();
     case 'SET_STATE':
+      // Reject stale deliveries: only accept if the incoming version is strictly newer.
+      if ((action.state.stateVersion ?? 0) < (state.stateVersion ?? 0)) return state;
       return action.state;
     case 'SELECT_MAGIC':
       // Local-only: no stateVersion bump, no Supabase push.
@@ -70,6 +82,16 @@ function reducer(state: GameState, action: Action): GameState {
       next = resolveDiscardAnyChoice(state, action.choice); break;
     case 'RESOLVE_DISCARD_SPECIFIC':
       next = resolveDiscardSpecific(state, action.cardId); break;
+    case 'RESOLVE_DISCARD_CHOOSE':
+      next = resolveDiscardChoose(state, action.cardId); break;
+    case 'RESOLVE_GRAVEDIGGER':
+      next = resolveGravediggerChoice(state, action.cardId); break;
+    case 'RESOLVE_GOBLIN_DISCARD':
+      next = resolveGoblinDiscardSpecific(state, action.cardId); break;
+    case 'RESOLVE_DRUID_MAGIC':
+      next = resolveDruidMagicChoice(state, action.cardId); break;
+    case 'RESOLVE_PROTECTION':
+      next = resolveProtectionChoice(state, action.choice); break;
     case 'RESOLVE_COUNTER':
       next = resolveCounterWindow(state, action.counterCardId); break;
     case 'FORCE_END_TURN':
@@ -95,7 +117,12 @@ export interface GameActions {
   manipulationTarget: (position: Position) => void;
   discardAnyChoose: (choice: 'lose_life' | 'discard_magic') => void;
   discardSpecificCard: (cardId: string) => void;
+  discardChoose: (cardId: string) => void;
+  gravediggerChoose: (cardId: string) => void;
+  goblinDiscardSpecific: (cardId: string) => void;
+  druidMagicChoose: (cardId: string) => void;
   resolveCounter: (counterCardId?: string) => void;
+  resolveProtection: (choice: { kind: 'flag'; flag: string } | { kind: 'barrier' } | { kind: 'none' }) => void;
 }
 
 export interface GameStateConfig {
@@ -136,8 +163,12 @@ export function useGameState(config: GameStateConfig = {}): { state: GameState; 
     if (state === prevStateRef.current) return;
     prevStateRef.current = state;
 
-    // Don't push back state that arrived from the server
-    if (state === lastExternalStateRef.current) return;
+    // Don't push back state that arrived from the server.
+    // The object-reference guard (=== lastExternalStateRef) is NOT enough: the version
+    // bump in the reducer creates a new object, so the reference never matches.
+    // Using the action type is reliable: SET_STATE is only dispatched when external state
+    // arrives, so any state change caused by SET_STATE must not be pushed back.
+    if (lastActionRef.current === 'SET_STATE') return;
 
     // Don't push local-only UI actions (e.g. card selection in hand)
     if (lastActionRef.current && LOCAL_ONLY_ACTIONS.has(lastActionRef.current)) return;
@@ -163,7 +194,12 @@ export function useGameState(config: GameStateConfig = {}): { state: GameState; 
     manipulationTarget: (position) => act({ type: 'RESOLVE_MANIPULATION', position }),
     discardAnyChoose: (choice) => act({ type: 'RESOLVE_DISCARD_ANY', choice }),
     discardSpecificCard: (cardId) => act({ type: 'RESOLVE_DISCARD_SPECIFIC', cardId }),
+    discardChoose: (cardId) => act({ type: 'RESOLVE_DISCARD_CHOOSE', cardId }),
+    gravediggerChoose: (cardId) => act({ type: 'RESOLVE_GRAVEDIGGER', cardId }),
+    goblinDiscardSpecific: (cardId) => act({ type: 'RESOLVE_GOBLIN_DISCARD', cardId }),
+    druidMagicChoose: (cardId) => act({ type: 'RESOLVE_DRUID_MAGIC', cardId }),
     resolveCounter: (counterCardId) => act({ type: 'RESOLVE_COUNTER', counterCardId }),
+    resolveProtection: (choice) => act({ type: 'RESOLVE_PROTECTION', choice }),
   };
 
   return { state, actions };

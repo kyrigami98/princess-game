@@ -6,6 +6,7 @@ import type {
   GridCardEffect,
   LogEntry,
   MagicCard,
+  PendingChoice,
   Player,
   PlayerID,
   Position,
@@ -88,6 +89,7 @@ export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joue
     lastCounterEvent: null,
     selectedMagicCard: null,
     lastFlippedCard: null,
+    activeEffectMarkers: [],
     winner: null,
     log: [
       {
@@ -103,13 +105,28 @@ export function createInitialState(player1Name = 'Joueur 1', player2Name = 'Joue
   };
 }
 
+function reshuffleDeckIfNeeded(state: GameState): GameState {
+  if (state.magicDeck.length > 0) return state;
+  const allDiscards = [
+    ...state.players.player1.discardPile,
+    ...state.players.player2.discardPile,
+  ];
+  if (allDiscards.length === 0) return state;
+  let next = setPlayer(state, { ...state.players.player1, discardPile: [] });
+  next = setPlayer(next, { ...next.players.player2, discardPile: [] });
+  next = addLog(next, '🔀 Deck épuisé — les défausses sont mélangées et reforment le deck.', 'info', 'system');
+  return { ...next, magicDeck: shuffle(allDiscards) };
+}
+
 function drawMagic(state: GameState, playerId: PlayerID, amount = 1): GameState {
-  if (amount <= 0 || state.magicDeck.length === 0) return state;
-  const deck = [...state.magicDeck];
+  if (amount <= 0) return state;
+  const s = reshuffleDeckIfNeeded(state);
+  if (s.magicDeck.length === 0) return s;
+  const deck = [...s.magicDeck];
   const drawn = deck.splice(0, amount);
-  const player = state.players[playerId];
+  const player = s.players[playerId];
   return {
-    ...setPlayer(state, { ...player, hand: [...player.hand, ...drawn] }),
+    ...setPlayer(s, { ...player, hand: [...player.hand, ...drawn] }),
     magicDeck: deck,
   };
 }
@@ -169,7 +186,9 @@ function consumeProtection(
   const player = state.players[playerId];
   if (!player[key]) return state;
   const updated = { ...player, [key]: false };
-  return addLog(setPlayer(state, updated), message, 'success', 'system');
+  let withMarkers = addLog(setPlayer(state, updated), message, 'success', 'system');
+  withMarkers = removeEffectMarkersByFlag(withMarkers, playerId, key as string);
+  return withMarkers;
 }
 
 function applyLifeLossDirect(state: GameState, playerId: PlayerID, amount: number, source: 'character' | 'spell' | 'magic'): GameState {
@@ -190,37 +209,71 @@ function applyLifeLossDirect(state: GameState, playerId: PlayerID, amount: numbe
 
 function applyLifeLoss(state: GameState, playerId: PlayerID, amount: number, source: 'character' | 'spell' | 'magic'): GameState {
   if (amount <= 0 || state.phase === 'game_over') return state;
-  const next = state;
-  const player = next.players[playerId];
+  const player = state.players[playerId];
+
+  // Construire la liste des protections disponibles
+  const options: NonNullable<PendingChoice['protectionOptions']> = [];
 
   if (player.immuneNextLifeLoss) {
-    return consumeProtection(next, playerId, 'immuneNextLifeLoss', `🛡️ ${player.name} annule la prochaine perte de vie.`);
+    const label = findMarkerCardLabel(state, playerId, 'immuneNextLifeLoss') ?? 'Protection active';
+    const effect = findMarkerCardEffect(state, playerId, 'immuneNextLifeLoss') ?? undefined;
+    const description = findMarkerCardDescription(state, playerId, 'immuneNextLifeLoss') ?? undefined;
+    options.push({ kind: 'flag', flag: 'immuneNextLifeLoss', label, effect, description });
   }
-
   if (amount === 1 && player.immuneNextSingleLifeLoss) {
-    return consumeProtection(next, playerId, 'immuneNextSingleLifeLoss', `🛡️ ${player.name} annule cette perte de 1 vie.`);
+    const label = findMarkerCardLabel(state, playerId, 'immuneNextSingleLifeLoss') ?? 'Protection active';
+    const effect = findMarkerCardEffect(state, playerId, 'immuneNextSingleLifeLoss') ?? undefined;
+    const description = findMarkerCardDescription(state, playerId, 'immuneNextSingleLifeLoss') ?? undefined;
+    options.push({ kind: 'flag', flag: 'immuneNextSingleLifeLoss', label, effect, description });
+  }
+  if (amount === 1 && !state.pendingCounter && player.hand.some((c) => c.effect === 'barrier')) {
+    options.push({ kind: 'barrier' });
   }
 
-  // Fenêtre de Barrière : si le joueur a une carte Barrière et aucune fenêtre de contre déjà active
-  if (amount === 1 && !next.pendingCounter && player.hand.some((c) => c.effect === 'barrier')) {
+  if (options.length === 0) {
+    return applyLifeLossDirect(state, playerId, amount, source);
+  }
+
+  if (options.length === 1) {
+    // Une seule protection : auto-consommer comme avant
+    const opt = options[0];
+    if (opt.kind === 'flag') {
+      return consumeProtection(
+        state,
+        playerId,
+        opt.flag as keyof Pick<Player, 'immuneNextLifeLoss' | 'immuneNextSingleLifeLoss'>,
+        `🛡️ ${player.name} annule la prochaine perte de vie.`,
+      );
+    }
+    // barrier seul
     return {
-      ...next,
+      ...state,
       pendingCounter: {
         kind: 'barrier',
         forPlayer: playerId,
-        description: `${player.name} est sur le point de perdre 1 vie.`,
+        description: `${player.name} est sur le point de perdre ${amount} vie.`,
         amount,
         source,
       },
     };
   }
 
-  return applyLifeLossDirect(next, playerId, amount, source);
+  // Plusieurs protections : demander au joueur
+  return {
+    ...state,
+    pendingChoice: {
+      type: 'protection_choice',
+      playerId,
+      protectionOptions: options,
+      pendingLifeLoss: { amount, source },
+      triggerCardEffect: state.lastFlippedCard?.effect,
+      triggerCardLabel: state.lastFlippedCard?.label,
+    },
+  };
 }
 
 function drawDefaultCard(state: GameState, playerId: PlayerID): GameState {
-  if (state.magicDeck.length > 0) return drawMagic(state, playerId, 1);
-  return state;
+  return drawMagic(state, playerId, 1);
 }
 
 function uniquePositions(positions: Position[]): Position[] {
@@ -237,8 +290,9 @@ function uniquePositions(positions: Position[]): Position[] {
 }
 
 function getForcedTargetsForCurrent(state: GameState): Position[] {
-  if (state.queenForcedFor === state.currentTurn && state.queenForcedQueue?.length) {
-    return state.queenForcedQueue.filter((pos) => !state.grid[pos.row][pos.col].flipped);
+  if (state.queenForcedQueue?.length) {
+    const remaining = state.queenForcedQueue.filter((pos) => !state.grid[pos.row][pos.col].flipped);
+    if (remaining.length > 0) return remaining;
   }
   if (state.forcedFlipFor === state.currentTurn && state.forcedFlipTargets?.length) {
     return state.forcedFlipTargets.filter((pos) => !state.grid[pos.row][pos.col].flipped);
@@ -283,7 +337,7 @@ function clearConsumedForcedConstraints(state: GameState, position: Position): G
     };
   }
 
-  if (next.queenForcedFor === next.currentTurn && next.queenForcedQueue) {
+  if (next.queenForcedQueue) {
     const remains = next.queenForcedQueue.filter((target) => !samePosition(target, position));
     next = {
       ...next,
@@ -352,28 +406,80 @@ function revealTargetsWithFilter(state: GameState, sourceCard: GridCard, filter:
   return next;
 }
 
+function addEffectMarker(state: GameState, cardId: string, playerId: PlayerID, flag: string): GameState {
+  if (state.activeEffectMarkers.some(m => m.cardId === cardId)) return state;
+  return { ...state, activeEffectMarkers: [...state.activeEffectMarkers, { cardId, playerId, flag }] };
+}
+
+function removeEffectMarkersByFlag(state: GameState, playerId: PlayerID, flag: string): GameState {
+  return { ...state, activeEffectMarkers: state.activeEffectMarkers.filter(m => !(m.playerId === playerId && m.flag === flag)) };
+}
+
+function findMarkerCardLabel(state: GameState, playerId: PlayerID, flag: string): string | null {
+  const marker = state.activeEffectMarkers.find((m) => m.playerId === playerId && m.flag === flag);
+  if (!marker) return null;
+  for (const row of state.grid) {
+    for (const card of row) {
+      if (card.id === marker.cardId) return card.label;
+    }
+  }
+  return null;
+}
+
+function findMarkerCardEffect(state: GameState, playerId: PlayerID, flag: string): string | null {
+  const marker = state.activeEffectMarkers.find((m) => m.playerId === playerId && m.flag === flag);
+  if (!marker) return null;
+  for (const row of state.grid) {
+    for (const card of row) {
+      if (card.id === marker.cardId) return card.effect;
+    }
+  }
+  return null;
+}
+
+function findMarkerCardDescription(state: GameState, playerId: PlayerID, flag: string): string | null {
+  const marker = state.activeEffectMarkers.find((m) => m.playerId === playerId && m.flag === flag);
+  if (!marker) return null;
+  for (const row of state.grid) {
+    for (const card of row) {
+      if (card.id === marker.cardId) return card.description;
+    }
+  }
+  return null;
+}
+
+function isInPlayerTerritory(pos: Position, playerId: PlayerID, gridRows: number): boolean {
+  const half = Math.floor(gridRows / 2);
+  return playerId === 'player1' ? pos.row >= half : pos.row < half;
+}
+
 const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
-  yeti: (state) => withSkipNextTurn(state, opp(state.currentTurn), '🦣 Yéti : l’adversaire passera son prochain tour.'),
+  yeti: (state, card) => addEffectMarker(withSkipNextTurn(state, opp(state.currentTurn), `🦣 Yéti : l'adversaire passera son prochain tour.`), card.id, opp(state.currentTurn), 'skipNextTurn'),
   villager: (state) => addLog(state, '🏡 Villageois : aucun effet.', 'info', 'system'),
   troll: (state) => {
     const opponent = opp(state.currentTurn);
     let next = addLog(state, '👹 Troll : adversaire perd 1 vie et 1 magie.', 'danger', 'system');
     next = applyLifeLoss(next, opponent, 1, 'character');
     if (next.phase === 'game_over') return next;
-    return discardRandomMagic(next, opponent, 1);
+    if (next.players[opponent].hand.length === 0) return next;
+    // Si applyLifeLoss a déclenché un protection_choice, différer le discard
+    if (next.pendingChoice?.type === 'protection_choice') {
+      return { ...next, pendingChoice: { ...next.pendingChoice, thenDiscardFor: opponent } };
+    }
+    return { ...next, pendingChoice: { type: 'discard_choose', playerId: opponent } };
   },
-  triton: (state) => {
+  triton: (state, card) => {
     const opponent = opp(state.currentTurn);
     const target = state.players[opponent];
     const next = setPlayer(state, { ...target, immuneNextMagic: true });
-    return addLog(next, '🌊 Triton : adversaire protégé contre votre prochaine magie.', 'warning', 'system');
+    return addEffectMarker(addLog(next, '🌊 Triton : adversaire protégé contre votre prochaine magie.', 'warning', 'system'), card.id, opponent, 'immuneNextMagic');
   },
-  treant: (state) => {
+  treant: (state, card) => {
     const actor = state.players[state.currentTurn];
     const next = setPlayer(state, { ...actor, immuneNextMagic: true });
-    return addLog(next, '🌳 Treant : vous êtes protégé contre la prochaine magie adverse.', 'success', 'system');
+    return addEffectMarker(addLog(next, '🌳 Treant : vous êtes protégé contre la prochaine magie adverse.', 'success', 'system'), card.id, state.currentTurn, 'immuneNextMagic');
   },
-  succubus: (state) => withSkipNextTurn(state, state.currentTurn, '😈 Succube : vous passerez votre prochain tour.'),
+  succubus: (state, card) => addEffectMarker(withSkipNextTurn(state, state.currentTurn, '😈 Succube : vous passerez votre prochain tour.'), card.id, state.currentTurn, 'skipNextTurn'),
   siren: (state) => {
     const actorId = state.currentTurn;
     const opponentId = opp(actorId);
@@ -407,17 +513,20 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
       queenForcedFor: targetPlayer,
       arrowConstraint: null,
     };
-    return addLog(next, `👑 Reine : ${state.players[targetPlayer].name} doit d’abord retourner ces cartes.`, 'warning', 'system');
+    return addLog(next, `👑 Reine : les deux joueurs doivent d'abord retourner ces cartes.`, 'warning', 'system');
   },
   princess_strict: (state, card) => {
     const targetPlayer = opp(state.currentTurn);
-    if (state.queenForcedFor === targetPlayer && state.queenForcedQueue?.length) {
-      return addLog(state, '👸 Princesse ignorée : la Reine a priorité.', 'info', 'system');
+    if (state.queenForcedQueue?.length) {
+      return addLog(state, `👸 Princesse ignorée : la Reine a priorité.`, 'info', 'system');
     }
-    const targets = getArrowTargets(card, state.grid, true);
-    if (targets.length === 0) return addLog(state, '👸 Princesse : aucune cible valide.', 'info', 'system');
+    const rawTargets = getArrowTargets(card, state.grid, true);
+    if (rawTargets.length === 0) return addLog(state, `👸 Princesse : aucune cible valide.`, 'info', 'system');
+    const gridRows = state.grid.length;
+    const targets = rawTargets.filter((pos) => isInPlayerTerritory(pos, targetPlayer, gridRows));
+    if (targets.length === 0) return addLog(state, `👸 Princesse ignorée : la cible n'est pas dans le territoire adverse.`, 'info', 'system');
     return {
-      ...addLog(state, '👸 Princesse : l’adversaire est contraint à la carte pointée.', 'warning', 'system'),
+      ...addLog(state, `👸 Princesse : l'adversaire est contraint à la carte pointée.`, 'warning', 'system'),
       arrowConstraint: { sourceCardId: card.id, targets, forcedFor: targetPlayer },
     };
   },
@@ -435,11 +544,11 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
     next = applyLifeLoss(next, 'player2', 1, 'character');
     return next;
   },
-  minotaur: (state) => {
+  minotaur: (state, card) => {
     const opponent = opp(state.currentTurn);
     const player = state.players[opponent];
     const next = setPlayer(state, { ...player, immuneNextSingleLifeLoss: true });
-    return addLog(next, '🐂 Minotaure : adversaire protégé contre sa prochaine perte de 1 vie.', 'warning', 'system');
+    return addEffectMarker(addLog(next, '🐂 Minotaure : adversaire protégé contre sa prochaine perte de 1 vie.', 'warning', 'system'), card.id, opponent, 'immuneNextSingleLifeLoss');
   },
   merchant_lugajo: (state) => {
     let next = drawMagic(state, 'player1', 1);
@@ -449,32 +558,56 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
     next = applyLifeLoss(next, 'player2', 1, 'character');
     return next;
   },
-  merchant_lorino: (state) => drawMagic(discardRandomMagic(state, state.currentTurn, 1), state.currentTurn, 1),
+  merchant_lorino: (state) => {
+    const actor = state.currentTurn;
+    if (state.players[actor].hand.length === 0) return drawMagic(state, actor, 1);
+    return { ...state, pendingChoice: { type: 'discard_choose', playerId: actor, thenDraw: true } };
+  },
   mage: (state) => {
     const target = opp(state.currentTurn);
-    return drawMagic(discardRandomMagic(state, target, 1), target, 1);
+    if (state.players[target].hand.length === 0) return drawMagic(state, target, 1);
+    return { ...state, pendingChoice: { type: 'discard_choose', playerId: target, thenDraw: true } };
   },
   librarian: (state) => {
-    if (state.magicDeck.length === 0) return state;
-    const deck = shuffle(state.magicDeck);
+    const s = reshuffleDeckIfNeeded(state);
+    if (s.magicDeck.length === 0) return s;
+    const deck = shuffle(s.magicDeck);
     const [card, ...rest] = deck;
-    const player = state.players[state.currentTurn];
+    const player = s.players[s.currentTurn];
     return {
-      ...setPlayer(state, { ...player, hand: [...player.hand, card] }),
+      ...setPlayer(s, { ...player, hand: [...player.hand, card] }),
       magicDeck: shuffle(rest),
     };
   },
-  engineer: (state) => discardRandomMagic(discardRandomMagic(state, 'player1', 1), 'player2', 1),
+  engineer: (state) => {
+    const p1HasCards = state.players.player1.hand.length > 0;
+    const p2HasCards = state.players.player2.hand.length > 0;
+    if (p1HasCards) {
+      return {
+        ...state,
+        pendingChoice: {
+          type: 'discard_choose',
+          playerId: 'player1',
+          chainDiscard: p2HasCards ? 'player2' : undefined,
+        },
+      };
+    }
+    if (p2HasCards) {
+      return { ...state, pendingChoice: { type: 'discard_choose', playerId: 'player2' } };
+    }
+    return state;
+  },
   ifrit: (state) => {
     const next = applyLifeLoss(state, state.currentTurn, 1, 'character');
     if (next.phase === 'game_over') return next;
-    return discardRandomMagic(next, state.currentTurn, 1);
+    if (next.players[state.currentTurn].hand.length === 0) return next;
+    return { ...next, pendingChoice: { type: 'discard_choose', playerId: state.currentTurn } };
   },
-  harpy: (state) => {
+  harpy: (state, card) => {
     const target = opp(state.currentTurn);
     const player = state.players[target];
     const next = setPlayer(state, { ...player, immuneNextSpell: true });
-    return addLog(next, '🪽 Harpie : adversaire protégé contre son prochain sortilège.', 'warning', 'system');
+    return addEffectMarker(addLog(next, '🪽 Harpie : adversaire protégé contre son prochain sortilège.', 'warning', 'system'), card.id, target, 'immuneNextSpell');
   },
   warrior: (state) => {
     const target = opp(state.currentTurn);
@@ -489,13 +622,15 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
     const opponent = opp(state.currentTurn);
     return { ...state, pendingChoice: { type: 'goblin', playerId: opponent } };
   },
-  giant: (state) => {
+  giant: (state, card) => {
     const actor = state.players[state.currentTurn];
-    return setPlayer(state, { ...actor, immuneNextLifeLoss: true });
+    const next = setPlayer(state, { ...actor, immuneNextLifeLoss: true });
+    return addEffectMarker(addLog(next, '🗿 Géant : vous êtes protégé contre la prochaine perte de vie.', 'success', 'system'), card.id, state.currentTurn, 'immuneNextLifeLoss');
   },
-  proud_knight: (state) => {
+  proud_knight: (state, card) => {
     const actor = state.players[state.currentTurn];
-    return setPlayer(state, { ...actor, immuneNextLifeLoss: true });
+    const next = setPlayer(state, { ...actor, immuneNextLifeLoss: true });
+    return addEffectMarker(addLog(next, '🗡️ Fier Chevalier : vous êtes protégé contre la prochaine perte de vie.', 'success', 'system'), card.id, state.currentTurn, 'immuneNextLifeLoss');
   },
   fairy: (state) => ({
     ...state,
@@ -503,28 +638,32 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   }),
   gravedigger: (state) => {
     const actor = state.currentTurn;
-    const target = opp(actor);
     let next = state;
     if (next.players[actor].hand.length === 0) next = drawMagic(next, actor, 1);
-    return transferRandomMagic(next, actor, target);
+    return { ...next, pendingChoice: { type: 'gravedigger', playerId: actor } };
   },
   druid: (state) => {
     const target = opp(state.currentTurn);
-    const next = discardRandomMagic(state, target, 1);
-    return { ...next, pendingChoice: { type: 'discard_any_card', playerId: target, amount: 1 } };
+    if (state.players[target].hand.length === 0) {
+      return { ...state, pendingChoice: { type: 'discard_any_card', playerId: target, amount: 1 } };
+    }
+    return { ...state, pendingChoice: { type: 'druid_magic', playerId: target } };
   },
   demon_pfozet: (state, card) => revealTargetsWithFilter(state, card, 'negative'),
-  demon_josu: (state) => {
+  demon_josu: (state, card) => {
     const actor = state.players[state.currentTurn];
-    return setPlayer(state, { ...actor, immuneNextSpell: true });
+    const next = setPlayer(state, { ...actor, immuneNextSpell: true });
+    return addEffectMarker(addLog(next, '😈 Démon JOSU : vous êtes protégé contre le prochain sortilège.', 'success', 'system'), card.id, state.currentTurn, 'immuneNextSpell');
   },
-  knight_runu: (state) => {
+  knight_runu: (state, card) => {
     const actor = state.players[state.currentTurn];
-    return setPlayer(state, { ...actor, immuneNextNegativeCharacter: true });
+    const next = setPlayer(state, { ...actor, immuneNextNegativeCharacter: true });
+    return addEffectMarker(addLog(next, '⚔️ Chevalier RUNU : vous êtes protégé contre le prochain effet négatif de PERSONNAGE.', 'success', 'system'), card.id, state.currentTurn, 'immuneNextNegativeCharacter');
   },
-  knight_gojo: (state) => {
+  knight_gojo: (state, card) => {
     const actor = state.players[state.currentTurn];
-    return setPlayer(state, { ...actor, immuneNextPositiveCharacter: true });
+    const next = setPlayer(state, { ...actor, immuneNextPositiveCharacter: true });
+    return addEffectMarker(addLog(next, '⚔️ Chevalier GOJO : vous ne serez pas affecté par le prochain effet positif de PERSONNAGE.', 'warning', 'system'), card.id, state.currentTurn, 'immuneNextPositiveCharacter');
   },
   bibliothecary: (state) => drawMagic(state, state.currentTurn, 1),
   atlante: (state) => applyLifeLoss(state, opp(state.currentTurn), 1, 'character'),
@@ -565,7 +704,8 @@ const GRID_EFFECTS: Record<GridCardEffect, EffectHandler> = {
   electrocution: (state) => {
     const next = applyLifeLoss(state, state.currentTurn, 1, 'spell');
     if (next.phase === 'game_over') return next;
-    return discardRandomMagic(next, state.currentTurn, 1);
+    if (next.players[state.currentTurn].hand.length === 0) return next;
+    return { ...next, pendingChoice: { type: 'discard_choose', playerId: state.currentTurn } };
   },
   lightning: (state) => applyLifeLoss(state, opp(state.currentTurn), 2, 'spell'),
   death: (state) => ({
@@ -583,7 +723,7 @@ function runGridEffect(state: GameState, card: GridCard, nestedFilter: CardPolar
   }
 
   if (card.kind === 'death' && nestedFilter) {
-    return addLog(state, '↪ LA MORT est révélée mais son effet ne s’applique pas ici.', 'warning', 'system');
+    return addLog(state, `↪ LA MORT est révélée mais son effet ne s'applique pas ici.`, 'warning', 'system');
   }
 
   const current = state.currentTurn;
@@ -625,7 +765,7 @@ export function flipCard(state: GameState, position: Position): GameState {
 
   // Fenêtre de contre : demander à l'adversaire avant d'appliquer l'effet
   const opponentId = opp(next.currentTurn);
-  if (next.players[opponentId].hand.some((c) => c.effect === 'immunity')) {
+  if (next.players[opponentId].hand.some((c) => c.effect === 'immunity') && card.effect !== 'death') {
     return {
       ...next,
       pendingCounter: {
@@ -769,14 +909,13 @@ export function endTurn(state: GameState): GameState {
     const skippedPlayer = nextTurn;
     const skippedTurnNumber = next.turnNumber;
     next = setPlayer(next, { ...next.players[nextTurn], skipNextTurn: false });
+    next = { ...next, activeEffectMarkers: next.activeEffectMarkers.filter(m => !(m.playerId === skippedPlayer && m.flag === 'skipNextTurn')) };
     next = addLog(next, `${next.players[nextTurn].name} passe son tour.`, 'warning', 'system');
     const afterSkip = endTurn(next);
     return { ...afterSkip, lastSkippedTurn: { player: skippedPlayer, turnNumber: skippedTurnNumber } };
   }
 
-  if (next.magicDeck.length > 0) {
-    next = drawMagic(next, nextTurn, 1);
-  }
+  next = drawMagic(next, nextTurn, 1);
 
   return next;
 }
@@ -788,8 +927,7 @@ export function resolveGoblinChoice(state: GameState, choice: 'lose_life' | 'dis
   let next: GameState = { ...state, pendingChoice: null };
 
   if (choice === 'discard_magic' && next.players[playerId].hand.length > 0) {
-    next = discardRandomMagic(next, playerId, 1);
-    next = addLog(next, `👺 ${next.players[playerId].name} défausse 1 carte de magie.`, 'info', playerId);
+    return { ...next, pendingChoice: { type: 'goblin_discard', playerId } };
   } else {
     next = applyLifeLoss(next, playerId, 1, 'character');
   }
@@ -862,6 +1000,69 @@ export function resolveDiscardAnyChoice(state: GameState, choice: 'lose_life' | 
   return completeResolution(next);
 }
 
+/** Le Fossoyeur VIJO : l'acteur choisit quelle carte donner à l'adversaire. */
+export function resolveGravediggerChoice(state: GameState, cardId: string): GameState {
+  if (state.pendingChoice?.type !== 'gravedigger') return state;
+  const actorId = state.pendingChoice.playerId;
+  const targetId = opp(actorId);
+  const actor = state.players[actorId];
+  const card = actor.hand.find((c) => c.id === cardId);
+  if (!card) return state;
+
+  let next: GameState = { ...state, pendingChoice: null };
+  next = setPlayer(next, { ...actor, hand: actor.hand.filter((c) => c.id !== cardId) });
+  const target = next.players[targetId];
+  next = setPlayer(next, { ...target, hand: [...target.hand, card] });
+  next = addLog(next, `⚰️ ${next.players[actorId].name} donne ${card.name} à ${next.players[targetId].name}.`, 'info', actorId);
+
+  return completeResolution(next);
+}
+
+/** Gobelin : le joueur choisit quelle carte de magie défausser (après avoir choisi "défausser"). */
+export function resolveGoblinDiscardSpecific(state: GameState, cardId: string): GameState {
+  if (state.pendingChoice?.type !== 'goblin_discard') return state;
+  const playerId = state.pendingChoice.playerId;
+  const currentTurn = state.currentTurn;
+  const player = state.players[playerId];
+  const card = player.hand.find((c) => c.id === cardId);
+  if (!card) return state;
+
+  let next: GameState = { ...state, pendingChoice: null };
+  next = setPlayer(next, {
+    ...player,
+    hand: player.hand.filter((c) => c.id !== cardId),
+    discardPile: [...player.discardPile, card],
+  });
+  next = addLog(next, `👺 ${next.players[playerId].name} défausse ${card.name}.`, 'info', playerId);
+
+  if (next.phase === 'game_over') return next;
+
+  if (playerId === opp(currentTurn)) {
+    return { ...next, pendingChoice: { type: 'goblin', playerId: currentTurn } };
+  }
+
+  return completeResolution(next);
+}
+
+/** Druide LORINO : l'adversaire choisit quelle carte de MAGIE défausser (1ère étape). */
+export function resolveDruidMagicChoice(state: GameState, cardId: string): GameState {
+  if (state.pendingChoice?.type !== 'druid_magic') return state;
+  const targetId = state.pendingChoice.playerId;
+  const player = state.players[targetId];
+  const card = player.hand.find((c) => c.id === cardId);
+  if (!card) return state;
+
+  let next: GameState = { ...state, pendingChoice: null };
+  next = setPlayer(next, {
+    ...player,
+    hand: player.hand.filter((c) => c.id !== cardId),
+    discardPile: [...player.discardPile, card],
+  });
+  next = addLog(next, `🌿 ${next.players[targetId].name} défausse ${card.name}.`, 'info', targetId);
+
+  return { ...next, pendingChoice: { type: 'discard_any_card', playerId: targetId, amount: 1 } };
+}
+
 /** Le joueur choisit explicitement quelle carte défausser. */
 export function resolveDiscardSpecific(state: GameState, cardId: string): GameState {
   if (state.pendingChoice?.type !== 'discard_any_card') return state;
@@ -880,6 +1081,60 @@ export function resolveDiscardSpecific(state: GameState, cardId: string): GameSt
   next = addLog(next, `${next.players[targetId].name} défausse ${card.name}.`, 'info', targetId);
 
   return completeResolution(next);
+}
+
+/** Le joueur choisit quelle protection utiliser face à une perte de vie. */
+export function resolveProtectionChoice(
+  state: GameState,
+  choice: { kind: 'flag'; flag: string } | { kind: 'barrier' } | { kind: 'none' },
+): GameState {
+  if (state.pendingChoice?.type !== 'protection_choice') return state;
+
+  const { playerId, pendingLifeLoss, thenDiscardFor } = state.pendingChoice;
+  const player = state.players[playerId];
+  let next: GameState = { ...state, pendingChoice: null };
+
+  function withDeferredDiscard(s: GameState): GameState {
+    if (thenDiscardFor && s.players[thenDiscardFor].hand.length > 0 && !s.pendingChoice) {
+      return { ...s, pendingChoice: { type: 'discard_choose', playerId: thenDiscardFor } };
+    }
+    return completeResolution(s);
+  }
+
+  if (choice.kind === 'flag') {
+    const flagKey = choice.flag as keyof Pick<
+      Player,
+      'immuneNextLifeLoss' | 'immuneNextSingleLifeLoss'
+    >;
+    next = consumeProtection(
+      next,
+      playerId,
+      flagKey,
+      `🛡️ ${player.name} utilise sa protection de PERSONNAGE (${choice.flag === 'immuneNextLifeLoss' ? 'perte de vie annulée' : 'perte de 1 vie annulée'}).`,
+    );
+    return withDeferredDiscard(next);
+  }
+
+  if (choice.kind === 'barrier') {
+    if (!pendingLifeLoss) return withDeferredDiscard(next);
+    // La barrière ouvre une fenêtre de contre — le discard différé sera perdu,
+    // mais c'est un cas très rare et la cohérence est préservée.
+    return {
+      ...next,
+      pendingCounter: {
+        kind: 'barrier',
+        forPlayer: playerId,
+        description: `${player.name} est sur le point de perdre ${pendingLifeLoss.amount} vie.`,
+        amount: pendingLifeLoss.amount,
+        source: pendingLifeLoss.source,
+      },
+    };
+  }
+
+  // choice.kind === 'none' : subir la perte de vie
+  if (!pendingLifeLoss) return withDeferredDiscard(next);
+  next = applyLifeLossDirect(next, playerId, pendingLifeLoss.amount, pendingLifeLoss.source);
+  return withDeferredDiscard(next);
 }
 
 /**
@@ -958,4 +1213,28 @@ export function resolveCounterWindow(state: GameState, counterCardId?: string): 
     next = applyLifeLossDirect(next, forPlayer, amount, source);
     return completeResolution(next);
   }
+}
+
+/** Le joueur choisit quelle carte défausser (troll, lorino, mage, ifrit, électrocution, ingénieur). */
+export function resolveDiscardChoose(state: GameState, cardId: string): GameState {
+  if (state.pendingChoice?.type !== 'discard_choose') return state;
+  const { playerId, thenDraw, chainDiscard } = state.pendingChoice;
+  const player = state.players[playerId];
+  const card = player.hand.find((c) => c.id === cardId);
+  let next: GameState = { ...state, pendingChoice: null };
+  if (card) {
+    next = setPlayer(next, {
+      ...player,
+      hand: player.hand.filter((c) => c.id !== cardId),
+      discardPile: [...player.discardPile, card],
+    });
+    next = addLog(next, `${next.players[playerId].name} défausse ${card.name}.`, 'info', playerId);
+  }
+  if (thenDraw) {
+    next = drawMagic(next, playerId, 1);
+  }
+  if (chainDiscard && next.players[chainDiscard].hand.length > 0) {
+    return { ...next, pendingChoice: { type: 'discard_choose', playerId: chainDiscard } };
+  }
+  return completeResolution(next);
 }

@@ -127,15 +127,32 @@ export interface Player {
 
 export type PendingChoiceType =
   | 'goblin'
+  | 'goblin_discard'
   | 'choice_of_soul'
   | 'manipulation'
   | 'fairy_peek'
-  | 'discard_any_card';
+  | 'discard_any_card'
+  | 'discard_choose'
+  | 'gravedigger'
+  | 'druid_magic'
+  | 'protection_choice';
 
 export interface PendingChoice {
   type: PendingChoiceType;
   playerId: PlayerID;
   amount?: number;
+  /** Pour discard_choose : piocher 1 carte après la défausse */
+  thenDraw?: boolean;
+  /** Pour discard_choose : enchaîner une défausse pour un autre joueur (engineer) */
+  chainDiscard?: PlayerID;
+  /** Carte qui a déclenché l'interaction (pour l'affichage dans les modals) */
+  triggerCardEffect?: string;
+  triggerCardLabel?: string;
+  // Pour protection_choice :
+  protectionOptions?: Array<{ kind: 'flag'; flag: string; label: string; effect?: string; description?: string } | { kind: 'barrier' }>;
+  pendingLifeLoss?: { amount: number; source: 'character' | 'spell' | 'magic' };
+  /** Si défini, déclencher un discard_choose pour ce joueur après résolution de la protection. */
+  thenDiscardFor?: PlayerID;
 }
 
 export type PendingCounter =
@@ -183,6 +200,7 @@ export interface GameState {
   pendingChoice: PendingChoice | null;
   selectedMagicCard: MagicCard | null;
   lastFlippedCard: GridCard | null;
+  activeEffectMarkers: Array<{ cardId: string; playerId: PlayerID; flag: string }>;
   winner: PlayerID | null;
   pendingCounter: PendingCounter | null;
   coinFlipResult: { victim: PlayerID; turnNumber: number } | null;

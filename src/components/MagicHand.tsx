@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MagicCard, GamePhase, MagicTiming } from "@/lib/types";
 import CardFace, { type CardData } from "./CardFace";
 import CardPreview from "./CardPreview";
@@ -95,6 +95,20 @@ export default function MagicHand({
   disabled,
   onCardHover,
 }: Props) {
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  const [newCardIds, setNewCardIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentIds = new Set(hand.map((c) => c.id));
+    const prev = prevIdsRef.current;
+    const fresh = new Set([...currentIds].filter((id) => !prev.has(id)));
+    prevIdsRef.current = currentIds;
+    if (fresh.size === 0) return;
+    setNewCardIds(fresh);
+    const t = setTimeout(() => setNewCardIds(new Set()), 500);
+    return () => clearTimeout(t);
+  }, [hand]);
+
   if (hand.length === 0) {
     return null;
   }
@@ -110,8 +124,9 @@ export default function MagicHand({
           {hand.map((card) => {
             const playable = !disabled && canPlayTiming(card.timing, phase);
             const isSelected = selectedCard?.id === card.id;
+            const isNew = newCardIds.has(card.id);
             return (
-              <div key={card.id} className="snap-start pb-1">
+              <div key={card.id} className={`snap-start pb-1${isNew ? ' card-draw-in' : ''}`}>
                 <MagicCardButton
                   card={card}
                   playable={playable}
@@ -132,23 +147,16 @@ export default function MagicHand({
         {hand.map((card, i) => {
           const playable = !disabled && canPlayTiming(card.timing, phase);
           const isSelected = selectedCard?.id === card.id;
-
+          const isNew = newCardIds.has(card.id);
           // Fan rotation: spread from center
-          const angle =
-            totalCards > 1
-              ? ((i - (totalCards - 1) / 2) / ((totalCards - 1) / 2 || 1)) *
-                maxAngle
-              : 0;
-          const translateY =
-            totalCards > 1 ? Math.abs(angle / maxAngle) * 6 : 0;
-
+          const angle = totalCards > 1 ? ((i - (totalCards - 1) / 2) / ((totalCards - 1) / 2 || 1)) * maxAngle : 0;
+          const translateY = totalCards > 1 ? Math.abs(angle / maxAngle) * 6 : 0;
           return (
             <div
               key={card.id}
+              className={isNew ? 'card-draw-in' : undefined}
               style={{
-                transform: isSelected
-                  ? "none"
-                  : `rotate(${angle}deg) translateY(${translateY}px)`,
+                transform: isSelected ? "none" : `rotate(${angle}deg) translateY(${translateY}px)`,
                 marginLeft: i > 0 ? "-8px" : 0,
                 zIndex: isSelected ? 20 : i,
                 transformOrigin: "bottom center",

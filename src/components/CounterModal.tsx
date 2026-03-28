@@ -35,14 +35,15 @@ export default function CounterModal({
   const triggerImage = CARD_IMAGES[triggerEffect] ?? CARD_IMAGES.default;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center pb-4 pointer-events-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
-        className="pointer-events-auto flex gap-5 items-stretch rounded-2xl border border-violet-500/50 p-5 shadow-2xl"
+        className="relative pointer-events-auto flex gap-5 items-stretch rounded-2xl border border-violet-500/50 p-5 shadow-2xl max-w-lg w-full"
         style={{
-          background: "rgba(10,6,28,0.82)",
-          backdropFilter: "blur(6px)",
+          background: "rgba(10,6,28,0.95)",
           boxShadow:
-            "0 0 40px rgba(120,50,220,0.3), 0 8px 32px rgba(0,0,0,0.6)",
+            "0 0 60px rgba(120,50,220,0.5), 0 8px 32px rgba(0,0,0,0.8)",
         }}
       >
         {/* ── Gauche : grande image de la carte déclenchante ── */}

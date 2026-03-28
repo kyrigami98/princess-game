@@ -41,7 +41,74 @@ body {
   }
 }
 
-/* Smooth card flip transitions */
+/* ── Card flip animation ───────────────────────────────────────────────────── */
+@keyframes card-flip-out {
+  0%   { transform: perspective(700px) rotateY(0deg) scale(1); }
+  100% { transform: perspective(700px) rotateY(92deg) scale(0.88); }
+}
+
+@keyframes card-flip-in {
+  0%   {
+    transform: perspective(700px) rotateY(-92deg) scale(0.88);
+    filter: brightness(2.5) drop-shadow(0 0 12px rgba(167, 139, 250, 0.9));
+  }
+  60%  { filter: brightness(1.4) drop-shadow(0 0 6px rgba(167, 139, 250, 0.5)); }
+  100% {
+    transform: perspective(700px) rotateY(0deg) scale(1);
+    filter: brightness(1) drop-shadow(0 0 0px transparent);
+  }
+}
+
+.card-flip-out {
+  animation: card-flip-out 0.18s ease-in forwards;
+  pointer-events: none;
+}
+
+.card-flip-in {
+  animation: card-flip-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+
+/* ── Last flipped card spotlight ───────────────────────────────────────────── */
+@keyframes card-spotlight {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 0.5),
+      0 0 14px rgba(251, 191, 36, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 1),
+      0 0 28px rgba(251, 191, 36, 0.55),
+      0 0 60px rgba(251, 191, 36, 0.2);
+  }
+}
+
+.card-last-flipped {
+  animation: card-spotlight 1.8s ease-in-out infinite;
+  z-index: 5;
+}
+
+/* ── Magic card draw-in animation ─────────────────────────────────────────── */
+@keyframes card-draw-in {
+  0%   { opacity: 0; transform: translateY(-32px) scale(0.6); filter: brightness(2.2) drop-shadow(0 0 8px rgba(139,92,246,0.9)); }
+  55%  { filter: brightness(1.3) drop-shadow(0 0 4px rgba(139,92,246,0.4)); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1) drop-shadow(0 0 0 transparent); }
+}
+.card-draw-in {
+  animation: card-draw-in 0.44s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+  pointer-events: none;
+}
+
+/* ── Damage projectile ────────────────────────────────────────────────────── */
+@keyframes proj-impact {
+  0%   { transform: translate(-50%, -50%) scale(1.4); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+}
+.proj-impact {
+  animation: proj-impact 0.3s ease-out forwards;
+}
+
 * {
   box-sizing: border-box;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PlayerID } from "@/lib/types";
 
 interface Props {
@@ -18,18 +18,23 @@ export default function CoinFlipModal({
 }: Props) {
   const [phase, setPhase] = useState<"spinning" | "result">("spinning");
   const isLocalVictim = victim === localRole;
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; });
 
+  // Les timers ne dépendent pas de onDone pour éviter les resets lors des
+  // mises à jour de state (ex: Supabase realtime qui recrée la fonction)
   useEffect(() => {
     const t1 = setTimeout(() => setPhase("result"), 1800);
-    const t2 = setTimeout(() => onDone(), 3800);
+    const t2 = setTimeout(() => onDoneRef.current(), 4500);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [onDone]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm pointer-events-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       <style>{`
         @keyframes cfSpin {
           0%   { transform: rotateY(0deg) scale(1); }
@@ -129,6 +134,15 @@ export default function CoinFlipModal({
           <p className="text-slate-500 text-sm animate-pulse">
             La pièce tourne…
           </p>
+        )}
+
+        {phase === "result" && (
+          <button
+            onClick={() => onDoneRef.current()}
+            className="mt-3 w-full py-2 rounded-xl bg-slate-800/80 border border-slate-600/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80 transition-colors text-sm font-medium"
+          >
+            Fermer
+          </button>
         )}
       </div>
     </div>

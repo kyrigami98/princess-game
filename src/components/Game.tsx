@@ -24,6 +24,14 @@ import TurnBanner from "@/components/TurnBanner";
 import CoinFlipModal from "@/components/CoinFlipModal";
 import CounterResultToast from "@/components/CounterResultToast";
 import DiscardPickModal from "@/components/DiscardPickModal";
+import ProtectionChoiceModal from "@/components/ProtectionChoiceModal";
+
+interface DamageProjectile {
+  id: number;
+  fromX: number; fromY: number;
+  toX: number; toY: number;
+  color: string;
+}
 
 // ─── Skip-turn toast ─────────────────────────────────────────────────────────
 function SkipTurnToast({ isLocal, playerName, onDone }: { isLocal: boolean; playerName: string; onDone: () => void }) {
@@ -124,28 +132,53 @@ const DICE_DOTS: Record<number, boolean[]> = {
   6: [true, false, true, true, false, true, true, false, true],
 };
 
-function Die({ value }: { value: number }) {
+const PLAYER_COLORS = {
+  player1: {
+    dieBg: "from-rose-950 to-red-900",
+    dieBorder: "border-rose-700/80",
+    dotOn: "bg-rose-300 shadow-sm shadow-rose-400/80",
+    lives: "text-rose-300",
+    name: "text-rose-300",
+    ring: "ring-rose-500/40",
+    stripActive: "border-rose-500/25 bg-rose-950/10 shadow-rose-500/5",
+    stripDot: "bg-rose-500",
+  },
+  player2: {
+    dieBg: "from-blue-950 to-blue-900",
+    dieBorder: "border-blue-700/80",
+    dotOn: "bg-blue-300 shadow-sm shadow-blue-400/80",
+    lives: "text-blue-300",
+    name: "text-blue-300",
+    ring: "ring-blue-500/40",
+    stripActive: "border-blue-500/25 bg-blue-950/10 shadow-blue-500/5",
+    stripDot: "bg-blue-500",
+  },
+} as const;
+
+function Die({ value, color }: { value: number; color: keyof typeof PLAYER_COLORS }) {
   const dots = DICE_DOTS[value] ?? DICE_DOTS[6];
+  const c = PLAYER_COLORS[color];
   return (
-    <div className="w-9 h-9 rounded-lg bg-linear-to-br from-rose-950 to-red-900 border-2 border-rose-700/80 shadow-inner shadow-black/40 grid grid-cols-3 grid-rows-3 p-1.5 gap-0.5">
+    <div className={`w-9 h-9 rounded-lg bg-linear-to-br ${c.dieBg} border-2 ${c.dieBorder} shadow-inner shadow-black/40 grid grid-cols-3 grid-rows-3 p-1.5 gap-0.5`}>
       {dots.map((on, i) => (
         <div
           key={i}
-          className={`rounded-full ${on ? "bg-rose-300 shadow-sm shadow-rose-400/80" : ""}`}
+          className={`rounded-full ${on ? c.dotOn : ""}`}
         />
       ))}
     </div>
   );
 }
 
-function LifeDice({ lives }: { lives: number }) {
+function LifeDice({ lives, color }: { lives: number; color: keyof typeof PLAYER_COLORS }) {
   const first = Math.min(lives, 6);
   const second = lives > 6 ? Math.min(lives - 6, 6) : null;
+  const c = PLAYER_COLORS[color];
   return (
     <div className="flex items-center gap-2 shrink-0">
-      {second !== null && <Die value={second} />}
-      <Die value={first} />
-      <span className="text-2xl font-black text-rose-300 tabular-nums leading-none">
+      {second !== null && <Die value={second} color={color} />}
+      <Die value={first} color={color} />
+      <span className={`text-2xl font-black ${c.lives} tabular-nums leading-none`}>
         {lives}
       </span>
     </div>
@@ -165,7 +198,9 @@ function PlayerStrip({
   discardLabel,
   magicDeckCount,
   mirrored,
+  color,
   children,
+  playerId,
 }: {
   player: Player;
   isActive: boolean;
@@ -173,18 +208,24 @@ function PlayerStrip({
   discardLabel: string;
   magicDeckCount: number;
   mirrored?: boolean;
+  color: keyof typeof PLAYER_COLORS;
   children?: React.ReactNode;
+  playerId?: string;
 }) {
+  const c = PLAYER_COLORS[color];
   const nameLabel = (
     <div className="flex flex-col items-center gap-1 shrink-0">
-      <span
-        className={[
-          "text-sm font-bold leading-none truncate max-w-24",
-          isActive ? "text-amber-200" : "text-white/80",
-        ].join(" ")}
-      >
-        {player.name}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className={`w-2 h-2 rounded-full ${c.stripDot} shrink-0`} />
+        <span
+          className={[
+            "text-sm font-bold leading-none truncate max-w-24",
+            isActive ? c.name : "text-white/70",
+          ].join(" ")}
+        >
+          {player.name}
+        </span>
+      </div>
       {/* Status effects */}
       <div className="flex flex-wrap gap-0.5 justify-center">
         {player.immuneNextSingleLifeLoss && <span className="text-[10px]">🛡️</span>}
@@ -198,7 +239,7 @@ function PlayerStrip({
 
   const livesBadge = (
     <div className="shrink-0 px-1">
-      <LifeDice lives={player.lives} />
+      <LifeDice lives={player.lives} color={color} />
     </div>
   );
 
@@ -211,10 +252,11 @@ function PlayerStrip({
 
   return (
     <section
+      data-player-lives={playerId}
       className={[
         "flex items-center gap-2 px-3 py-2 rounded-2xl border overflow-hidden transition-all duration-300",
         isActive
-          ? "border-amber-500/25 bg-white/5 shadow-lg shadow-amber-500/5"
+          ? `${c.stripActive} shadow-lg`
           : "border-white/5 bg-white/3",
       ].join(" ")}
       style={{ backdropFilter: "blur(8px)" }}
@@ -235,6 +277,64 @@ function PlayerStrip({
         </>
       )}
     </section>
+  );
+}
+
+// ─── Damage particle ─────────────────────────────────────────────────────────
+
+function DamageParticle({ fromX, fromY, toX, toY, color }: Omit<DamageProjectile, 'id'>) {
+  const [launched, setLaunched] = useState(false);
+  const [impact, setImpact] = useState(false);
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+
+  useEffect(() => {
+    const r1 = requestAnimationFrame(() =>
+      requestAnimationFrame(() => setLaunched(true))
+    );
+    const t1 = setTimeout(() => setImpact(true), 420);
+    return () => { cancelAnimationFrame(r1); clearTimeout(t1); };
+  }, []);
+
+  return (
+    <>
+      {/* Projectile orb */}
+      <div
+        style={{
+          position: 'fixed',
+          left: fromX,
+          top: fromY,
+          width: 12,
+          height: 12,
+          borderRadius: '50%',
+          background: color,
+          boxShadow: `0 0 16px 5px ${color}, 0 0 4px 1px white`,
+          transform: `translate(-50%, -50%) translate(${launched ? dx : 0}px, ${launched ? dy : 0}px) scale(${launched ? 0.5 : 1})`,
+          transition: 'transform 0.42s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.1s 0.38s',
+          opacity: launched ? (impact ? 0 : 1) : 0.9,
+          pointerEvents: 'none',
+          zIndex: 9998,
+        }}
+      />
+      {/* Impact burst at target */}
+      {impact && (
+        <div
+          className="proj-impact"
+          style={{
+            position: 'fixed',
+            left: toX,
+            top: toY,
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            background: color,
+            boxShadow: `0 0 20px 8px ${color}`,
+            pointerEvents: 'none',
+            zIndex: 9998,
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -332,6 +432,59 @@ export default function Game({
     });
   }, [state.lastCounterEvent]);
 
+  // ── Damage projectile animation ──────────────────────────────────────────
+  const prevLivesRef = useRef<Record<string, number> | null>(null);
+  const [projectiles, setProjectiles] = useState<DamageProjectile[]>([]);
+  const projIdRef = useRef(0);
+
+  useEffect(() => {
+    const p1 = state.players.player1.lives;
+    const p2 = state.players.player2.lives;
+    if (!prevLivesRef.current) {
+      prevLivesRef.current = { player1: p1, player2: p2 };
+      return;
+    }
+    const prev = prevLivesRef.current;
+    prevLivesRef.current = { player1: p1, player2: p2 };
+
+    for (const pid of ['player1', 'player2'] as ('player1' | 'player2')[]) {
+      if (state.players[pid].lives < prev[pid]) {
+        const srcPos = state.lastFlippedCard?.position;
+        const srcEl = srcPos
+          ? document.querySelector<HTMLElement>(`[data-card-pos="${srcPos.row}-${srcPos.col}"]`)
+          : null;
+        const tgtEl = document.querySelector<HTMLElement>(`[data-player-lives="${pid}"]`);
+        if (!srcEl || !tgtEl) continue;
+        const srcRect = srcEl.getBoundingClientRect();
+        const tgtRect = tgtEl.getBoundingClientRect();
+        const id = ++projIdRef.current;
+        setProjectiles((ps) => [
+          ...ps,
+          {
+            id,
+            fromX: srcRect.left + srcRect.width / 2,
+            fromY: srcRect.top + srcRect.height / 2,
+            toX: tgtRect.left + tgtRect.width / 2,
+            toY: tgtRect.top + tgtRect.height / 2,
+            color: pid === 'player1' ? 'rgba(239,68,68,0.95)' : 'rgba(96,165,250,0.95)',
+          },
+        ]);
+        setTimeout(() => setProjectiles((ps) => ps.filter((x) => x.id !== id)), 650);
+      }
+    }
+  }, [state.players.player1.lives, state.players.player2.lives, state.lastFlippedCard]);
+
+  // ── Scroll to opponent's flipped card ───────────────────────────────────
+  const lastFlippedId = state.lastFlippedCard?.id ?? null;
+  useEffect(() => {
+    if (!state.lastFlippedCard) return;
+    if (state.currentTurn === localRole) return; // c'est moi qui ai retourné
+    const { row, col } = state.lastFlippedCard.position;
+    const el = document.querySelector(`[data-card-pos="${row}-${col}"]`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastFlippedId]);
+
   async function handleQuit() {
     if (multiplayerProps && state.phase !== "game_over") {
       const forfeited = forfeitGame(state, localRole);
@@ -407,6 +560,8 @@ export default function Game({
           discardLabel="Défausse adversaire"
           magicDeckCount={state.magicDeck.length}
           mirrored
+          color={opponentRole}
+          playerId={opponentRole}
         />
 
         {/* ── Board ────────────────────────────────────────────────────── */}
@@ -572,6 +727,8 @@ export default function Game({
           isActive={isLocalTurn}
           discardLabel="Votre défausse"
           magicDeckCount={state.magicDeck.length}
+          color={localRole}
+          playerId={localRole}
         />
       </main>
       {/* ── Phase action buttons — floating above local hand ──────────── */}
@@ -642,6 +799,8 @@ export default function Game({
           <ChoiceModal
             type={pendingChoice.type}
             hasMagicCard={state.players[localRole].hand.length > 0}
+            triggerCardEffect={pendingChoice.triggerCardEffect ?? state.lastFlippedCard?.effect}
+            triggerCardLabel={pendingChoice.triggerCardLabel ?? state.lastFlippedCard?.label}
             onChoose={(choice) => {
               if (pendingChoice.type === "choice_of_soul") {
                 actions.choiceOfSoulChoose(choice as "draw_magic" | "gain_life");
@@ -656,6 +815,62 @@ export default function Game({
           hand={state.players[localRole].hand}
           onPickCard={(cardId) => actions.discardSpecificCard(cardId)}
           onLoseLife={() => actions.discardAnyChoose("lose_life")}
+          triggerCardEffect={state.lastFlippedCard?.effect}
+          triggerCardLabel={state.lastFlippedCard?.label}
+        />
+      )}
+      {isLocalPending && pendingChoice?.type === "discard_choose" && (
+        <DiscardPickModal
+          hand={state.players[localRole].hand}
+          onPickCard={(cardId) => actions.discardChoose(cardId)}
+          title="Quelle carte défausser ?"
+          description={
+            pendingChoice.thenDraw
+              ? "Défaussez 1 carte de MAGIE, puis vous en piochez 1."
+              : "Défaussez 1 carte de MAGIE."
+          }
+          triggerCardEffect={state.lastFlippedCard?.effect}
+          triggerCardLabel={state.lastFlippedCard?.label}
+        />
+      )}
+      {isLocalPending && pendingChoice?.type === "gravedigger" && (
+        <DiscardPickModal
+          hand={state.players[localRole].hand}
+          onPickCard={(cardId) => actions.gravediggerChoose(cardId)}
+          title="Quelle carte donner ?"
+          description="Le Fossoyeur VIJO — donnez 1 carte de MAGIE à votre adversaire."
+          triggerCardEffect={state.lastFlippedCard?.effect}
+          triggerCardLabel={state.lastFlippedCard?.label}
+        />
+      )}
+      {isLocalPending && pendingChoice?.type === "goblin_discard" && (
+        <DiscardPickModal
+          hand={state.players[localRole].hand}
+          onPickCard={(cardId) => actions.goblinDiscardSpecific(cardId)}
+          title="Quelle carte défausser ?"
+          description="Le Gobelin — choisissez la carte de MAGIE à défausser."
+          triggerCardEffect={state.lastFlippedCard?.effect}
+          triggerCardLabel={state.lastFlippedCard?.label}
+        />
+      )}
+      {isLocalPending && pendingChoice?.type === "druid_magic" && (
+        <DiscardPickModal
+          hand={state.players[localRole].hand}
+          onPickCard={(cardId) => actions.druidMagicChoose(cardId)}
+          title="Quelle carte de MAGIE défausser ?"
+          description="Le Druide LORINO — défaussez 1 carte de MAGIE."
+          triggerCardEffect={state.lastFlippedCard?.effect}
+          triggerCardLabel={state.lastFlippedCard?.label}
+        />
+      )}
+      {isLocalPending && pendingChoice?.type === "protection_choice" && (
+        <ProtectionChoiceModal
+          playerName={state.players[localRole].name}
+          options={pendingChoice.protectionOptions ?? []}
+          barrierCard={state.players[localRole].hand.find((c) => c.effect === "barrier")}
+          triggerCardEffect={pendingChoice.triggerCardEffect ?? state.lastFlippedCard?.effect}
+          triggerCardLabel={pendingChoice.triggerCardLabel ?? state.lastFlippedCard?.label}
+          onChoose={(choice) => actions.resolveProtection(choice)}
         />
       )}
       {/* ── Turn banner ─────────────────────────────────────────── */}
@@ -694,6 +909,10 @@ export default function Game({
           onDone={() => setCoinFlipDisplay(null)}
         />
       )}
+      {/* ── Damage projectiles ──────────────────────────────────────── */}
+      {projectiles.map((p) => (
+        <DamageParticle key={p.id} fromX={p.fromX} fromY={p.fromY} toX={p.toX} toY={p.toY} color={p.color} />
+      ))}
       {/* ── Game over banner ───────────────────────────────────────── */}
       {state.phase === "game_over" && state.winner && (
         <div
